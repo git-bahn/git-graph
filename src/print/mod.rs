@@ -1,6 +1,6 @@
 //! Create visual representations of git graphs.
 
-use crate::graph::GitGraph;
+use gleisbau::graph::GitGraph;
 use std::cmp::max;
 
 pub mod colors;

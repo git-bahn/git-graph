@@ -1,8 +1,8 @@
 //! Create graphs in SVG format (Scalable Vector Graphics).
 
-use crate::graph::CommitInfo;
-use crate::graph::GitGraph;
-use crate::settings::Settings;
+use gleisbau::graph::CommitInfo;
+use gleisbau::graph::GitGraph;
+use gleisbau::settings::Settings;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Group, Line, Path, Text, Title};
 use svg::Document;

@@ -1,8 +1,8 @@
 //! Create graphs in Unicode format with ANSI X3.64 / ISO 6429 colour codes
 
-use crate::graph::{BranchInfo, CommitInfo, GitGraph, HeadInfo};
+use gleisbau::graph::{BranchInfo, CommitInfo, GitGraph, HeadInfo};
 use crate::print::format::CommitFormat;
-use crate::settings::{Characters, Settings};
+use gleisbau::settings::{Characters, Settings};
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
