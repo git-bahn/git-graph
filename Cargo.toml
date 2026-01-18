@@ -1,6 +1,6 @@
 [package]
 name = "git-graph"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Martin Lange <martin_lange_@gmx.net>"]
 description = "Command line tool to show clear git graphs arranged for your branching model"
 repository = "https://github.com/mlange-42/git-graph.git"
@@ -34,3 +34,4 @@ platform-dirs = "0.3"
 crossterm = {version = "0.29", optional = false}
 chrono = {version = "0.4", optional = false}
 textwrap = {version = "0.16", default-features = false, optional = false, features = ["unicode-width"]}
+gleisbau = "0.7.1"

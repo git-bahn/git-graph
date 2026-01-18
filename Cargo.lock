@@ -329,13 +329,14 @@ dependencies = [
 
 [[package]]
 name = "git-graph"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "atty",
  "chrono",
  "clap",
  "crossterm",
  "git2",
+ "gleisbau",
  "itertools",
  "lazy_static",
  "platform-dirs",
@@ -359,6 +360,27 @@ dependencies = [
  "libgit2-sys",
  "log",
  "url",
+]
+
+[[package]]
+name = "gleisbau"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d413a3eb3643a105ab7a0a9d1424a97fbefba0ce7646ca7a9b71f9c207d95248"
+dependencies = [
+ "atty",
+ "chrono",
+ "crossterm",
+ "git2",
+ "itertools",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_derive",
+ "svg",
+ "textwrap",
+ "toml",
+ "yansi",
 ]
 
 [[package]]
@@ -801,7 +823,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

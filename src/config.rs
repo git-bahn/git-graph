@@ -6,7 +6,7 @@
 //! The [branching models][BranchSettingsDef] themselves are defined in
 //! module [settings][super::settings]
 
-use crate::settings::{BranchSettingsDef, RepoSettings};
+use gleisbau::settings::{BranchSettingsDef, RepoSettings};
 use git2::Repository;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

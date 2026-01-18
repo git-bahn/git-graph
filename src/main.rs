@@ -4,18 +4,23 @@
 #![warn(clippy::cognitive_complexity)]
 #![warn(clippy::too_many_lines)]
 
+// TODO remove code once gleisbau API has stabilized
+// Some of these features might return to the CLI tool (this application)
+//mod config;
+//mod print;
+
 use clap::ArgMatches;
 use clap::{crate_version, Arg, Command};
 use git2::Repository;
-use git_graph::config::{
+use gleisbau::config::{
     create_config, get_available_models, get_model, get_model_name, set_model,
 };
-use git_graph::get_repo;
-use git_graph::graph::GitGraph;
-use git_graph::print::format::CommitFormat;
-use git_graph::print::svg::print_svg;
-use git_graph::print::unicode::print_unicode;
-use git_graph::settings::{
+use gleisbau::get_repo;
+use gleisbau::graph::GitGraph;
+use gleisbau::print::format::CommitFormat;
+use gleisbau::print::svg::print_svg;
+use gleisbau::print::unicode::print_unicode;
+use gleisbau::settings::{
     BranchOrder, BranchSettings, BranchSettingsDef, Characters, MergePatterns, Settings,
 };
 use platform_dirs::AppDirs;
