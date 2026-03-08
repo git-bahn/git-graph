@@ -1,9 +1,10 @@
 //! Create graphs in SVG format (Scalable Vector Graphics).
 
+use crate::graph::CommitInfo;
 use crate::graph::GitGraph;
 use crate::settings::Settings;
 use svg::node::element::path::Data;
-use svg::node::element::{Circle, Line, Path};
+use svg::node::element::{Circle, Group, Line, Path, Text, Title};
 use svg::Document;
 
 /// Creates a SVG visual representation of a graph.
@@ -11,7 +12,8 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
     let mut document = Document::new();
 
     let max_idx = graph.commits.len();
-    let mut max_column = 0;
+    let mut widest_summary = 0.0;
+    let mut widest_branch_names = 0.0;
 
     if settings.debug {
         for branch in &graph.all_branches {
@@ -27,14 +29,20 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         }
     }
 
+    let max_column = graph
+        .commits
+        .iter()
+        .filter_map(|info| {
+            info.branch_trace
+                .and_then(|trace| graph.all_branches[trace].visual.column)
+        })
+        .max()
+        .unwrap_or(0);
+
     for (idx, info) in graph.commits.iter().enumerate() {
         if let Some(trace) = info.branch_trace {
             let branch = &graph.all_branches[trace];
             let branch_color = &branch.visual.svg_color;
-
-            if branch.visual.column.unwrap() > max_column {
-                max_column = branch.visual.column.unwrap();
-            }
 
             for p in 0..2 {
                 let parent = info.parents[p];
@@ -84,19 +92,53 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
                 }
             }
 
-            document = document.add(commit_dot(
-                idx,
-                branch.visual.column.unwrap(),
-                branch_color,
-                !info.is_merge,
-            ));
+            document = document.add(
+                commit_dot(
+                    idx,
+                    branch.visual.column.unwrap(),
+                    branch_color,
+                    !info.is_merge,
+                )
+                .add(Title::new(&info.oid.to_string())),
+            );
+
+            let commit = graph
+                .repository
+                .find_commit(info.oid)
+                .map_err(|err| err.message().to_string())?;
+
+            let commit_str = commit.summary().unwrap_or("");
+
+            document = document.add(draw_summary(idx, max_column, &commit_str));
+
+            match draw_branches(idx, branch.visual.column.unwrap(), info, graph) {
+                Some((branches, width)) => {
+                    document = document.add(branches);
+
+                    widest_branch_names = f32::max(widest_branch_names, width);
+                }
+                None => {}
+            }
+
+            widest_summary = f32::max(widest_summary, text_bounding_box(&commit_str, 12.0).0);
         }
     }
+
     let (x_max, y_max) = commit_coord(max_idx + 1, max_column + 1);
+
     document = document
-        .set("viewBox", (0, 0, x_max, y_max))
-        .set("width", x_max)
-        .set("height", y_max);
+        .set(
+            "viewBox",
+            (
+                -widest_branch_names,
+                0,
+                x_max + widest_branch_names + widest_summary,
+                y_max,
+            ),
+        )
+        .set("width", x_max + widest_branch_names + widest_summary + 15.0)
+        .set("height", y_max)
+        .set("style", "font-family:monospace;font-size:12px;");
 
     let mut out: Vec<u8> = vec![];
     svg::write(&mut out, &document).map_err(|err| err.to_string())?;
@@ -112,6 +154,97 @@ fn commit_dot(index: usize, column: usize, color: &str, filled: bool) -> Circle 
         .set("fill", if filled { color } else { "white" })
         .set("stroke", color)
         .set("stroke-width", 1)
+}
+
+fn draw_branches(
+    index: usize,
+    column: usize,
+    info: &CommitInfo,
+    graph: &GitGraph,
+) -> Option<(Group, f32)> {
+    let (x, y) = commit_coord(index, column);
+
+    let mut branch_names = info
+        .branches
+        .iter()
+        .map(|b| graph.all_branches[*b].name.clone())
+        .collect::<Vec<String>>();
+
+    if graph.head.oid == info.oid {
+        // Head is here
+        match branch_names
+            .iter()
+            .position(|name| name == &graph.head.name)
+        {
+            Some(index) => {
+                branch_names.insert(index + 1, "HEAD".to_string());
+            }
+            //Detached HEAD
+            None => branch_names.push("HEAD".to_string()),
+        }
+    }
+
+    if branch_names.len() > 0 {
+        let mut g = Group::new();
+        let mut start: f32 = 5.0;
+
+        for branch_name in &branch_names {
+            let gap = 9.0
+                + if branch_name == "HEAD" && graph.head.is_branch {
+                    0.0
+                } else {
+                    8.0
+                };
+            g = g.add(draw_branch(start - gap, 2.5, branch_name));
+
+            start = start - text_bounding_box(&branch_name, 12.0).0 - gap;
+        }
+
+        g = g.set("transform", format!("translate({x}, {y})"));
+
+        Some((g.clone(), -(start + x)))
+    } else {
+        None
+    }
+}
+
+fn draw_branch(x: f32, y: f32, branch_name: &String) -> Group {
+    let width = text_bounding_box(&branch_name, 12.0).0;
+
+    Group::new()
+        .add(Text::new(branch_name).set("x", x - width).set("y", y + 1.0))
+        .add(
+            Path::new()
+                .set(
+                    "d",
+                    Data::new()
+                        //Tip
+                        .move_to((x + 2.0, y + 4.0))
+                        .line_by((6.0, -7.0))
+                        .line_by((-6.0, -7.0))
+                        //Body
+                        .horizontal_line_by(-width - 11.0)
+                        //Rear
+                        .line_by((6.0, 7.0))
+                        .line_by((-6.0, 7.0))
+                        .close(),
+                )
+                .set("stroke", "#00000000")
+                .set("fill", "#00000030"),
+        )
+}
+
+fn draw_summary(index: usize, max_column: usize, hash: &str) -> Text {
+    let (x, y) = commit_coord(index, max_column);
+    Text::new(hash)
+        .set("x", x + 15.0)
+        .set("y", y + 2.0)
+        .set("style", "font-family:monospace;font-size:12px")
+}
+
+fn text_bounding_box(text: &str, size: f32) -> (f32, f32) {
+    // Let's assume the font has a 60% width
+    (text.len() as f32 * size * 0.6, size)
 }
 
 fn line(index1: usize, column1: usize, index2: usize, column2: usize, color: &str) -> Line {
@@ -155,12 +288,19 @@ fn path(
 
     let m = (0.5 * (c1.0 + c2.0), 0.5 * (c1.1 + c2.1));
 
-    let data = Data::new()
-        .move_to(c0)
-        .line_to(c1)
-        .quadratic_curve_to((c1.0, m.1, m.0, m.1))
-        .quadratic_curve_to((c2.0, m.1, c2.0, c2.1))
-        .line_to(c3);
+    let data = if column2 > column1 {
+        Data::new()
+            .move_to(c0)
+            .line_to(c1)
+            .line_to((c2.0, m.1))
+            .line_to(c3)
+    } else {
+        Data::new()
+            .move_to(c0)
+            .line_to((c1.0, m.1))
+            .line_to(c2)
+            .line_to(c3)
+    };
 
     Path::new()
         .set("d", data)
