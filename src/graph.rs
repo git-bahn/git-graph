@@ -328,8 +328,7 @@ fn configure_revwalk(
                 .revparse_single(refspec)
                 .map_err(|err| format!("Failed to resolve refspec '{}': {}", refspec, err))?;
             let oid = object.id();
-            walk.push(oid)
-                .map_err(|err| err.message().to_string())?;
+            walk.push(oid).map_err(|err| err.message().to_string())?;
             resolved_oids.push(oid);
         }
 
