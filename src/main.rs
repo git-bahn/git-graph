@@ -49,6 +49,7 @@ fn from_args() -> Result<(), String> {
         ses.settings.as_ref().unwrap(),
         ses.svg,
         ses.commit_limit,
+        ses.refspecs,
     )
 }
 
@@ -126,6 +127,14 @@ fn match_args() -> ArgMatches {
                 )
                 .required(false)
                 .num_args(1),
+        )
+        .arg(
+            Arg::new("refspecs")
+                .help(
+                    "Branch names or refspecs to show.\n  \
+                         Only the subgraph between the merge-base and the tips is displayed.",
+                )
+                .num_args(1..),
         );
 
     // Return match of declared arguments with what is present on command line
@@ -190,6 +199,11 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
     };
     ses.settings = Some(settings);
 
+    ses.refspecs = matches
+        .get_many::<String>("refspecs")
+        .map(|vals| vals.cloned().collect())
+        .unwrap_or_default();
+
     Ok(run_application)
 }
 
@@ -204,6 +218,7 @@ struct Session {
     pub repository: Option<Repository>,
     pub svg: bool,
     pub commit_limit: Option<usize>,
+    pub refspecs: Vec<String>,
 }
 
 impl Session {
@@ -219,6 +234,7 @@ impl Session {
             repository: None,
             svg: false,
             commit_limit: None,
+            refspecs: Vec::new(),
         }
     }
 }
@@ -597,9 +613,10 @@ fn run(
     settings: &Settings,
     svg: bool,
     max_commits: Option<usize>,
+    refspecs: Vec<String>,
 ) -> Result<(), String> {
     let now = Instant::now();
-    let graph = GitGraph::new(repository, settings, None, max_commits)?;
+    let graph = GitGraph::new(repository, settings, None, max_commits, refspecs)?;
 
     let duration_graph = now.elapsed().as_micros();
 
