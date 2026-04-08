@@ -45,6 +45,7 @@ impl GitGraph {
         settings: &Settings,
         start_point: Option<String>,
         max_count: Option<usize>,
+        refspecs: Vec<String>,
     ) -> Result<Self, String> {
         #![doc = include_str!("../docs/branch_assignment.md")]
         let mut stashes = HashSet::new();
@@ -62,17 +63,7 @@ impl GitGraph {
         walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)
             .map_err(|err| err.message().to_string())?;
 
-        // Use starting point if specified
-        if let Some(start) = start_point {
-            let object = repository
-                .revparse_single(&start)
-                .map_err(|err| format!("Failed to resolve start point '{}': {}", start, err))?;
-            walk.push(object.id())
-                .map_err(|err| err.message().to_string())?;
-        } else {
-            walk.push_glob("*")
-                .map_err(|err| err.message().to_string())?;
-        }
+        configure_revwalk(&repository, &mut walk, start_point, &refspecs)?;
 
         if repository.is_shallow() {
             return Err("ERROR: git-graph does not support shallow clones due to a missing feature in the underlying libgit2 library.".to_string());
@@ -298,6 +289,86 @@ impl BranchVis {
             column: None,
         }
     }
+}
+
+/// For a single refspec, find a base branch to compare against
+/// using the branch's upstream tracking ref.
+fn find_base_oid(repository: &Repository, refspec: &str, tip_oid: Oid) -> Option<Oid> {
+    if let Ok(branch) = repository.find_branch(refspec, BranchType::Local) {
+        if let Ok(upstream) = branch.upstream() {
+            if let Some(oid) = upstream.get().target() {
+                if oid != tip_oid {
+                    return Some(oid);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn hide_ancestors_of(repository: &Repository, walk: &mut git2::Revwalk, merge_base: Oid) {
+    if let Ok(commit) = repository.find_commit(merge_base) {
+        for parent in commit.parents() {
+            let _ = walk.hide(parent.id());
+        }
+    }
+}
+
+fn configure_revwalk(
+    repository: &Repository,
+    walk: &mut git2::Revwalk,
+    start_point: Option<String>,
+    refspecs: &[String],
+) -> Result<(), String> {
+    if !refspecs.is_empty() {
+        let mut resolved_oids = Vec::with_capacity(refspecs.len());
+        for refspec in refspecs {
+            let object = repository
+                .revparse_single(refspec)
+                .map_err(|err| format!("Failed to resolve refspec '{}': {}", refspec, err))?;
+            let oid = object.id();
+            walk.push(oid).map_err(|err| err.message().to_string())?;
+            resolved_oids.push(oid);
+        }
+
+        if resolved_oids.len() == 1 {
+            // Single refspec: auto-detect base branch
+            if let Some(base_oid) = find_base_oid(repository, &refspecs[0], resolved_oids[0]) {
+                walk.push(base_oid)
+                    .map_err(|err| err.message().to_string())?;
+                if let Ok(mb) = repository.merge_base(resolved_oids[0], base_oid) {
+                    hide_ancestors_of(repository, walk, mb);
+                }
+            }
+        } else {
+            // Multiple refspecs: compute merge-base of all
+            let mut base = resolved_oids[0];
+            let mut base_found = true;
+            for oid in &resolved_oids[1..] {
+                match repository.merge_base(base, *oid) {
+                    Ok(mb) => base = mb,
+                    Err(_) => {
+                        base_found = false;
+                        break;
+                    }
+                }
+            }
+            if base_found {
+                hide_ancestors_of(repository, walk, base);
+            }
+        }
+    } else if let Some(start) = start_point {
+        let object = repository
+            .revparse_single(&start)
+            .map_err(|err| format!("Failed to resolve start point '{}': {}", start, err))?;
+        walk.push(object.id())
+            .map_err(|err| err.message().to_string())?;
+    } else {
+        walk.push_glob("*")
+            .map_err(|err| err.message().to_string())?;
+    }
+    Ok(())
 }
 
 /// Walks through the commits and adds each commit's Oid to the children of its parents.
