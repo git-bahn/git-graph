@@ -89,6 +89,13 @@ git-graph --help
 
 For **styles** and commit **formatting**, see the [manual](docs/manual.md).
 
+## Config file
+
+There is a sample `git-graph.toml.sample` file provided in this repository containing the default configuration
+for `git-graph`.
+
+Copy and paste the file on yout `.git/` folder, change its name to `.git/git-graph.toml` and tweak it to fit your needs
+
 ## Custom branching models
 
 Branching models are configured using the files in `APP_DATA/git-graph/models`. 
