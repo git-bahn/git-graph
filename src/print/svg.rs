@@ -29,24 +29,15 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         }
     }
 
-    let max_column = graph
-        .commits
-        .iter()
-        .filter_map(|info| {
-            info.branch_trace
-                .and_then(|trace| graph.all_branches[trace].visual.column)
-        })
-        .max()
-        .unwrap_or(0);
+    let max_column = find_max_column(graph);
 
     for (idx, info) in graph.commits.iter().enumerate() {
         document = document.add(draw_commit(info, graph, idx));
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
+        let commit_summary = commit.summary().unwrap_or("");
 
-        let commit_str = commit.summary().unwrap_or("");
-
-        document = document.add(draw_summary(idx, max_column, commit_str));
+        document = document.add(draw_summary(idx, max_column, commit_summary));
 
         if let Some(trace) = info.branch_trace {
             let branch = &graph.all_branches[trace];
@@ -59,16 +50,15 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
                 widest_branch_names = f32::max(widest_branch_names, width);
             }
         }
-        widest_summary = f32::max(widest_summary, text_bounding_box(commit_str, 12.0).0);
+        widest_summary = f32::max(widest_summary, text_bounding_box(commit_summary, 12.0).0);
     }
 
-    let (x_max, y_max) = commit_coord(max_idx + 1, max_column + 1);
     document = set_document_size(
         document.clone(),
         widest_branch_names,
         widest_summary,
-        x_max,
-        y_max,
+        max_idx,
+        max_column,
     );
 
     let mut out: Vec<u8> = vec![];
@@ -80,9 +70,11 @@ fn set_document_size(
     document: Document,
     widest_branch_names: f32,
     widest_summary: f32,
-    x_max: f32,
-    y_max: f32,
+    max_idx: usize,
+    max_column: usize,
 ) -> Document {
+    let (x_max, y_max) = commit_coord(max_idx + 1, max_column + 1);
+
     document
         .set(
             "viewBox",
@@ -96,6 +88,18 @@ fn set_document_size(
         .set("width", x_max + widest_branch_names + widest_summary + 15.0)
         .set("height", y_max)
         .set("style", "font-family:monospace;font-size:12px;")
+}
+
+fn find_max_column(graph: &GitGraph) -> usize {
+    graph
+        .commits
+        .iter()
+        .filter_map(|info| {
+            info.branch_trace
+                .and_then(|trace| graph.all_branches[trace].visual.column)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
@@ -154,7 +158,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
             .add(Title::new(info.oid.to_string())),
         );
     }
-	group
+    group
 }
 
 fn commit_dot(index: usize, column: usize, color: &str, filled: bool) -> Circle {
