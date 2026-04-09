@@ -303,6 +303,8 @@ impl Default for MergePatterns {
                 Regex::new(r"^Merge branch '(.+)' of .+$").unwrap(),
                 // BitBucket pull request
                 Regex::new(r"^Merged in (.+) \(pull request #[0-9]+\)$").unwrap(),
+                // Gitea pull request
+                Regex::new(r"^Merge pull request '.*' \(#[0-9]+\) from (.+) into .+$").unwrap(),
             ],
         }
     }
