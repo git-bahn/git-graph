@@ -40,93 +40,50 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         .unwrap_or(0);
 
     for (idx, info) in graph.commits.iter().enumerate() {
+        document = document.add(draw_commit(info, graph, idx));
+
+        let commit = graph.repository.find_commit(info.oid).unwrap();
+
+        let commit_str = commit.summary().unwrap_or("");
+
+        document = document.add(draw_summary(idx, max_column, commit_str));
+
         if let Some(trace) = info.branch_trace {
             let branch = &graph.all_branches[trace];
-            let branch_color = &branch.visual.svg_color;
 
-            for p in 0..2 {
-                let parent = info.parents[p];
-                let Some(par_oid) = parent else {
-                    continue;
-                };
-                let Some(par_idx) = graph.indices.get(&par_oid) else {
-                    // Parent is outside scope of graph.indices
-                    // so draw a vertical line to the bottom
-                    let idx_bottom = max_idx;
-                    document = document.add(line(
-                        idx,
-                        branch.visual.column.unwrap(),
-                        idx_bottom,
-                        branch.visual.column.unwrap(),
-                        branch_color,
-                    ));
-                    continue;
-                };
-                let par_info = &graph.commits[*par_idx];
-                let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
+            if let Some((branches, width)) =
+                draw_branches(idx, branch.visual.column.unwrap(), info, graph)
+            {
+                document = document.add(branches);
 
-                let color = if info.is_merge {
-                    &par_branch.visual.svg_color
-                } else {
-                    branch_color
-                };
-
-                if branch.visual.column == par_branch.visual.column {
-                    document = document.add(line(
-                        idx,
-                        branch.visual.column.unwrap(),
-                        *par_idx,
-                        par_branch.visual.column.unwrap(),
-                        color,
-                    ));
-                } else {
-                    let split_index = super::get_deviate_index(graph, idx, *par_idx);
-                    document = document.add(path(
-                        idx,
-                        branch.visual.column.unwrap(),
-                        *par_idx,
-                        par_branch.visual.column.unwrap(),
-                        split_index,
-                        color,
-                    ));
-                }
+                widest_branch_names = f32::max(widest_branch_names, width);
             }
-
-            document = document.add(
-                commit_dot(
-                    idx,
-                    branch.visual.column.unwrap(),
-                    branch_color,
-                    !info.is_merge,
-                )
-                .add(Title::new(&info.oid.to_string())),
-            );
-
-            let commit = graph
-                .repository
-                .find_commit(info.oid)
-                .map_err(|err| err.message().to_string())?;
-
-            let commit_str = commit.summary().unwrap_or("");
-
-            document = document.add(draw_summary(idx, max_column, &commit_str));
-
-            match draw_branches(idx, branch.visual.column.unwrap(), info, graph) {
-                Some((branches, width)) => {
-                    document = document.add(branches);
-
-                    widest_branch_names = f32::max(widest_branch_names, width);
-                }
-                None => {}
-            }
-
-            widest_summary = f32::max(widest_summary, text_bounding_box(&commit_str, 12.0).0);
         }
+        widest_summary = f32::max(widest_summary, text_bounding_box(commit_str, 12.0).0);
     }
 
     let (x_max, y_max) = commit_coord(max_idx + 1, max_column + 1);
+    document = set_document_size(
+        document.clone(),
+        widest_branch_names,
+        widest_summary,
+        x_max,
+        y_max,
+    );
 
-    document = document
+    let mut out: Vec<u8> = vec![];
+    svg::write(&mut out, &document).map_err(|err| err.to_string())?;
+    Ok(String::from_utf8(out).unwrap_or_else(|_| "Invalid UTF8 character.".to_string()))
+}
+
+fn set_document_size(
+    document: Document,
+    widest_branch_names: f32,
+    widest_summary: f32,
+    x_max: f32,
+    y_max: f32,
+) -> Document {
+    document
         .set(
             "viewBox",
             (
@@ -138,11 +95,66 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         )
         .set("width", x_max + widest_branch_names + widest_summary + 15.0)
         .set("height", y_max)
-        .set("style", "font-family:monospace;font-size:12px;");
+        .set("style", "font-family:monospace;font-size:12px;")
+}
 
-    let mut out: Vec<u8> = vec![];
-    svg::write(&mut out, &document).map_err(|err| err.to_string())?;
-    Ok(String::from_utf8(out).unwrap_or_else(|_| "Invalid UTF8 character.".to_string()))
+fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
+    let mut group = Group::new();
+
+    if let Some(trace) = info.branch_trace {
+        let branch = &graph.all_branches[trace];
+        let branch_color = &branch.visual.svg_color;
+
+        for p in 0..2 {
+            let parent = info.parents[p];
+            let Some(par_oid) = parent else {
+                continue;
+            };
+            let Some(par_idx) = graph.indices.get(&par_oid) else {
+                // Parent is outside scope of graph.indices
+                // so draw a vertical line to the bottom
+                let idx_bottom = graph.commits.len();
+                group = group.add(line(
+                    index,
+                    branch.visual.column.unwrap(),
+                    idx_bottom,
+                    branch.visual.column.unwrap(),
+                    branch_color,
+                ));
+                continue;
+            };
+            let par_info = &graph.commits[*par_idx];
+            let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
+
+            group = group.add(path(
+                index,
+                branch.visual.column.unwrap(),
+                *par_idx,
+                par_branch.visual.column.unwrap(),
+                if branch.visual.column == par_branch.visual.column {
+                    index
+                } else {
+                    super::get_deviate_index(graph, index, *par_idx)
+                },
+                if info.is_merge {
+                    &par_branch.visual.svg_color
+                } else {
+                    branch_color
+                },
+            ));
+        }
+
+        group = group.add(
+            commit_dot(
+                index,
+                branch.visual.column.unwrap(),
+                branch_color,
+                !info.is_merge,
+            )
+            .add(Title::new(info.oid.to_string())),
+        );
+    }
+	group
 }
 
 fn commit_dot(index: usize, column: usize, color: &str, filled: bool) -> Circle {
@@ -184,7 +196,7 @@ fn draw_branches(
         }
     }
 
-    if branch_names.len() > 0 {
+    if !branch_names.is_empty() {
         let mut g = Group::new();
         let mut start: f32 = 5.0;
 
@@ -197,7 +209,7 @@ fn draw_branches(
                 };
             g = g.add(draw_branch(start - gap, 2.5, branch_name));
 
-            start = start - text_bounding_box(&branch_name, 12.0).0 - gap;
+            start = start - text_bounding_box(branch_name, 12.0).0 - gap;
         }
 
         g = g.set("transform", format!("translate({x}, {y})"));
@@ -209,7 +221,7 @@ fn draw_branches(
 }
 
 fn draw_branch(x: f32, y: f32, branch_name: &String) -> Group {
-    let width = text_bounding_box(&branch_name, 12.0).0;
+    let width = text_bounding_box(branch_name, 12.0).0;
 
     Group::new()
         .add(Text::new(branch_name).set("x", x - width).set("y", y + 1.0))
