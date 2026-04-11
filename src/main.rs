@@ -7,18 +7,16 @@
 // TODO remove code once gleisbau API has stabilized
 // Some of these features might return to the CLI tool (this application)
 //mod config;
-//mod print;
+mod print;
 
+use crate::print::svg::print_svg;
 use clap::ArgMatches;
 use clap::{crate_version, Arg, Command};
 use git2::Repository;
-use gleisbau::config::{
-    create_config, get_available_models, get_model, get_model_name, set_model,
-};
+use gleisbau::config::{create_config, get_available_models, get_model, get_model_name, set_model};
 use gleisbau::get_repo;
-use gleisbau::graph::GitGraph;
+use gleisbau::graph::Builder as GraphBuilder;
 use gleisbau::print::format::CommitFormat;
-use gleisbau::print::svg::print_svg;
 use gleisbau::print::unicode::print_unicode;
 use gleisbau::settings::{
     BranchOrder, BranchSettings, BranchSettingsDef, Characters, MergePatterns, Settings,
@@ -621,7 +619,14 @@ fn run(
     refspecs: Vec<String>,
 ) -> Result<(), String> {
     let now = Instant::now();
-    let graph = GitGraph::new(repository, settings, None, max_commits, refspecs)?;
+    let mut graph_builder = GraphBuilder::new()
+        .with_repository(repository)
+        .with_settings(settings)
+        .with_refspecs(refspecs);
+    if let Some(max_commits) = max_commits {
+        graph_builder = graph_builder.with_max_count(max_commits);
+    }
+    let graph = graph_builder.build()?;
 
     let duration_graph = now.elapsed().as_micros();
 

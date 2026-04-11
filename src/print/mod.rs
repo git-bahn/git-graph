@@ -3,10 +3,12 @@
 use gleisbau::graph::GitGraph;
 use std::cmp::max;
 
-pub mod colors;
-pub mod format;
+// TODO remove code once gleisbau API has stabilized
+// Some of these features might return to the CLI tool (this application)
+//pub mod colors;
+//pub mod format;
 pub mod svg;
-pub mod unicode;
+//pub mod unicode;
 
 /// Find the index at which a between-branch connection
 /// has to deviate from the current branch's column.
