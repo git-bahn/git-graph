@@ -364,9 +364,9 @@ dependencies = [
 
 [[package]]
 name = "gleisbau"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6401871b98a7af32f127715db0e95f8e903daecf63b742e86d3e8192a151d5db"
+checksum = "f62d5fddd695288c7bb753bb9018634770675d0eda184e1f10f854a0ac2f7724"
 dependencies = [
  "atty",
  "chrono",

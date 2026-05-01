@@ -50,13 +50,13 @@ graph-lines, text-lines, start-row
     Some entries in this vector might be empty strings or correspond to
     inserted blank lines for visual spacing.
 
-3.  start_row: `Vec<usize>`: Starting row for commit in the `graph.commits` vector.
+3.  start_row: `Vec<usize>`: Starting row for commit in the `tracks.commits` vector.
 */
 pub type UnicodeGraphInfo = (Vec<String>, Vec<String>, Vec<usize>);
 
 /// Creates a text-based visual representation of a graph.
 pub fn print_unicode(graph: &GitGraph, settings: &Settings) -> Result<UnicodeGraphInfo, String> {
-    if graph.all_branches.is_empty() {
+    if tracks.all_branches.is_empty() {
         return Ok((vec![], vec![], vec![]));
     }
 
@@ -128,7 +128,7 @@ fn build_commit_lines_and_map<'a>(
     inserts: &HashMap<usize, Vec<Vec<Occ>>>,
     wrap_options: &Option<Options<'a>>,
 ) -> Result<(Vec<Option<String>>, Vec<usize>), String> {
-    let head_idx = graph.indices.get(&graph.head.oid);
+    let head_idx = tracks.indices.get(&graph.head.oid);
 
     // Compute commit text into text_lines and add blank rows
     // if needed to match branch graph inserts.
@@ -136,7 +136,7 @@ fn build_commit_lines_and_map<'a>(
     let mut text_lines = vec![];
     let mut offset = 0;
 
-    for (idx, info) in graph.commits.iter().enumerate() {
+    for (idx, info) in tracks.commits.iter().enumerate() {
         index_map.push(idx + offset);
 
         // Calculate needed graph inserts (for ranges only)
@@ -203,11 +203,11 @@ fn draw_graph_lines(
         },
     );
 
-    for (idx, info) in graph.commits.iter().enumerate() {
+    for (idx, info) in tracks.commits.iter().enumerate() {
         let Some(trace) = info.branch_trace else {
             continue;
         };
-        let branch = &graph.all_branches[trace];
+        let branch = &tracks.all_branches[trace];
         let column = branch.visual.column.unwrap();
         let idx_map = index_map[idx];
 
@@ -245,8 +245,8 @@ fn draw_parent_lines(
         let Some(par_oid) = parent else {
             continue;
         };
-        let Some(par_idx) = graph.indices.get(&par_oid) else {
-            // Parent is outside scope of graph.indices
+        let Some(par_idx) = tracks.indices.get(&par_oid) else {
+            // Parent is outside scope of tracks.indices
             // so draw a vertical line to the bottom
             let idx_bottom = grid.height;
             vline(
@@ -260,8 +260,8 @@ fn draw_parent_lines(
         };
 
         let par_idx_map = index_map[*par_idx];
-        let par_info = &graph.commits[*par_idx];
-        let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
+        let par_info = &tracks.commits[*par_idx];
+        let par_branch = &tracks.all_branches[par_info.branch_trace.unwrap()];
         let par_column = par_branch.visual.column.unwrap();
 
         let (color, pers) = if info.is_merge {
@@ -566,7 +566,7 @@ fn update_right_cell_backward(grid: &mut Grid, index: usize, from_2: usize, colo
 /// # Returns
 ///
 /// A `HashMap` where the keys are the indices of commits in the
-/// `graph.commits` vector, and the values are vectors of vectors
+/// `tracks.commits` vector, and the values are vectors of vectors
 /// of `Occ`. Each inner vector represents a potential row of
 /// insertions needed *before* the commit at the key index. The
 /// `Occ` enum describes what occupies a cell in that row
@@ -580,11 +580,11 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
     // First, for each commit, we initialize an entry in the `inserts`
     // map with a single row containing the commit itself. This ensures
     // that every commit has a position in the grid.
-    for (idx, info) in graph.commits.iter().enumerate() {
+    for (idx, info) in tracks.commits.iter().enumerate() {
         // Get the visual column assigned to the branch of this commit. Unwrap is safe here
         // because `branch_trace` should always point to a valid branch with an assigned column
         // for commits that are included in the filtered graph.
-        let column = graph.all_branches[info.branch_trace.unwrap()]
+        let column = tracks.all_branches[info.branch_trace.unwrap()]
             .visual
             .column
             .unwrap();
@@ -594,12 +594,12 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
 
     // Now, iterate through the commits again to identify connections
     // needed between parents that are not directly adjacent in the
-    // `graph.commits` list.
-    for (idx, info) in graph.commits.iter().enumerate() {
+    // `tracks.commits` list.
+    for (idx, info) in tracks.commits.iter().enumerate() {
         // If the commit has a branch trace (meaning it belongs to a visualized branch).
         if let Some(trace) = info.branch_trace {
             // Get the `BranchInfo` for the current commit's branch.
-            let branch = &graph.all_branches[trace];
+            let branch = &tracks.all_branches[trace];
             // Get the visual column of the current commit's branch. Unwrap is safe as explained above.
             let column = branch.visual.column.unwrap();
 
@@ -609,10 +609,10 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
                 let Some(par_oid) = parent else {
                     continue;
                 };
-                // Try to find the index of the parent commit in the `graph.commits` vector.
-                if let Some(par_idx) = graph.indices.get(&par_oid) {
-                    let par_info = &graph.commits[*par_idx];
-                    let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
+                // Try to find the index of the parent commit in the `tracks.commits` vector.
+                if let Some(par_idx) = tracks.indices.get(&par_oid) {
+                    let par_info = &tracks.commits[*par_idx];
+                    let par_branch = &tracks.all_branches[par_info.branch_trace.unwrap()];
                     let par_column = par_branch.visual.column.unwrap();
                     // Determine the sorted range of columns between the current commit and its parent.
                     let column_range = sorted(column, par_column);
@@ -620,7 +620,7 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
                     // If the column of the current commit is different from the column of its parent,
                     // it means we need to draw a horizontal line (an "insert") to connect them.
                     if column != par_column {
-                        // Find the index in the `graph.commits` list where the visual connection
+                        // Find the index in the `tracks.commits` list where the visual connection
                         // should deviate from the parent's line. This helps in drawing the graph
                         // correctly when branches diverge or merge.
                         let split_index = super::get_deviate_index(graph, idx, *par_idx);
@@ -784,7 +784,7 @@ pub fn format_branches(
 ) -> String {
     let curr_color = info
         .branch_trace
-        .map(|branch_idx| &graph.all_branches[branch_idx].visual.term_color);
+        .map(|branch_idx| &tracks.all_branches[branch_idx].visual.term_color);
 
     let mut branch_str = String::new();
 
@@ -805,14 +805,14 @@ pub fn format_branches(
 
         let branches = info.branches.iter().sorted_by_key(|br| {
             if let Some(head) = head {
-                head.name != graph.all_branches[**br].name
+                head.name != tracks.all_branches[**br].name
             } else {
                 false
             }
         });
 
         for (idx, branch_index) in branches.enumerate() {
-            let branch = &graph.all_branches[*branch_index];
+            let branch = &tracks.all_branches[*branch_index];
             let branch_color = branch.visual.term_color;
 
             if let Some(head) = head {
@@ -843,7 +843,7 @@ pub fn format_branches(
     if !info.tags.is_empty() {
         write!(branch_str, " [").unwrap();
         for (idx, tag_index) in info.tags.iter().enumerate() {
-            let tag = &graph.all_branches[*tag_index];
+            let tag = &tracks.all_branches[*tag_index];
             let tag_color = curr_color.unwrap_or(&tag.visual.term_color);
 
             let tag_name = &tag.name[5..];
@@ -867,10 +867,10 @@ pub fn format_branches(
 /// Occupied row ranges
 enum Occ {
     /// Horizontal position of commit markers
-    // First  field (usize): The index of a commit within the graph.commits vector.
+    // First  field (usize): The index of a commit within the tracks.commits vector.
     // Second field (usize): The visual column in the grid where this commit is located. This column is determined by the branch the commit belongs to.
     // Purpose: This variant of Occ signifies that a specific row in the grid is occupied by a commit marker (dot or circle) at a particular column.
-    Commit(usize, usize), // index in Graph.commits, column
+    Commit(usize, usize), // index in tracks.commits, column
 
     /// Horizontal line connecting two commits
     // First  field (usize): The index of the starting commit of a visual connection (usually the child commit).

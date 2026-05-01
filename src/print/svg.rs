@@ -1,7 +1,10 @@
 //! Create graphs in SVG format (Scalable Vector Graphics).
 
+use itertools::enumerate;
+
 use gleisbau::graph::CommitInfo;
 use gleisbau::graph::GitGraph;
+use gleisbau::layout::get_deviate_index;
 use gleisbau::settings::Settings;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Group, Line, Path, Text, Title};
@@ -9,20 +12,23 @@ use svg::Document;
 
 /// Creates a SVG visual representation of a graph.
 pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String> {
+    let tracks = graph.tracks.lock().unwrap();
+    let layout = &graph.layout;
     let mut document = Document::new();
 
-    let max_idx = graph.commits.len();
+    let max_idx = tracks.commits.len();
     let mut widest_summary = 0.0;
     let mut widest_branch_names = 0.0;
 
     if settings.debug {
-        for branch in &graph.all_branches {
+        for (branch_inx, branch) in enumerate(&tracks.all_branches) {
             if let (Some(start), Some(end)) = branch.range {
+                let branch_visual = layout.track_visual(branch_inx).unwrap();
                 document = document.add(bold_line(
                     start,
-                    branch.visual.column.unwrap(),
+                    branch_visual.column.unwrap(),
                     end,
-                    branch.visual.column.unwrap(),
+                    branch_visual.column.unwrap(),
                     "cyan",
                 ));
             }
@@ -31,7 +37,7 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
 
     let max_column = find_max_column(graph);
 
-    for (idx, info) in graph.commits.iter().enumerate() {
+    for (idx, info) in tracks.commits.iter().enumerate() {
         document = document.add(draw_commit(info, graph, idx));
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
@@ -40,10 +46,12 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         document = document.add(draw_summary(idx, max_column, commit_summary));
 
         if let Some(trace) = info.branch_trace {
-            let branch = &graph.all_branches[trace];
+            let branch_visual = layout
+                .track_visual(trace)
+                .expect("Branch should have a layout");
 
             if let Some((branches, width)) =
-                draw_branches(idx, branch.visual.column.unwrap(), info, graph)
+                draw_branches(idx, branch_visual.column.unwrap(), info, graph)
             {
                 document = document.add(branches);
 
@@ -91,57 +99,64 @@ fn set_document_size(
 }
 
 fn find_max_column(graph: &GitGraph) -> usize {
-    graph
+    let tracks = graph.tracks.lock().unwrap();
+    let layout = &graph.layout;
+    tracks
         .commits
         .iter()
         .filter_map(|info| {
             info.branch_trace
-                .and_then(|trace| graph.all_branches[trace].visual.column)
+                .and_then(|trace| layout.track_visual(trace))
+                .and_then(|visual| visual.column)
         })
         .max()
         .unwrap_or(0)
 }
 
+// index is graph.commits[index]
 fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
+    let tracks = graph.tracks.lock().unwrap();
+    let layout = &graph.layout;
     let mut group = Group::new();
 
     if let Some(trace) = info.branch_trace {
-        let branch = &graph.all_branches[trace];
-        let branch_color = &branch.visual.svg_color;
+        let branch_visual = graph.layout.track_visual(trace).unwrap();
+        let branch_color = &branch_visual.svg_color;
 
         for p in 0..2 {
             let parent = info.parents[p];
             let Some(par_oid) = parent else {
                 continue;
             };
-            let Some(par_idx) = graph.indices.get(&par_oid) else {
-                // Parent is outside scope of graph.indices
+            let Some(par_idx) = tracks.indices.get(&par_oid) else {
+                // Parent is outside scope of tracks.indices
                 // so draw a vertical line to the bottom
-                let idx_bottom = graph.commits.len();
+                let idx_bottom = tracks.commits.len();
                 group = group.add(line(
                     index,
-                    branch.visual.column.unwrap(),
+                    branch_visual.column.unwrap(),
                     idx_bottom,
-                    branch.visual.column.unwrap(),
+                    branch_visual.column.unwrap(),
                     branch_color,
                 ));
                 continue;
             };
-            let par_info = &graph.commits[*par_idx];
-            let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
+            let par_info = &tracks.commits[*par_idx];
+            let par_branch_idx = par_info.branch_trace.unwrap();
+            let par_branch_visual = layout.track_visual(par_branch_idx).unwrap();
 
             group = group.add(path(
                 index,
-                branch.visual.column.unwrap(),
+                branch_visual.column.unwrap(),
                 *par_idx,
-                par_branch.visual.column.unwrap(),
-                if branch.visual.column == par_branch.visual.column {
+                par_branch_visual.column.unwrap(),
+                if branch_visual.column == par_branch_visual.column {
                     index
                 } else {
-                    super::get_deviate_index(graph, index, *par_idx)
+                    get_deviate_index(&tracks, layout, index, *par_idx)
                 },
                 if info.is_merge {
-                    &par_branch.visual.svg_color
+                    &par_branch_visual.svg_color
                 } else {
                     branch_color
                 },
@@ -151,7 +166,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
         group = group.add(
             commit_dot(
                 index,
-                branch.visual.column.unwrap(),
+                branch_visual.column.unwrap(),
                 branch_color,
                 !info.is_merge,
             )
@@ -180,10 +195,12 @@ fn draw_branches(
 ) -> Option<(Group, f32)> {
     let (x, y) = commit_coord(index, column);
 
-    let mut branch_names = info
-        .branches
+    let mut branch_names = graph
+        .labels
+        .get_labels(&info.oid)
+        .unwrap_or(&vec![])
         .iter()
-        .map(|b| graph.all_branches[*b].name.clone())
+        .map(|label| label.name.clone())
         .collect::<Vec<String>>();
 
     if graph.head.oid == info.oid {

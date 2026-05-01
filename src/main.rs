@@ -21,6 +21,7 @@ use gleisbau::print::unicode::print_unicode;
 use gleisbau::settings::{
     BranchOrder, BranchSettings, BranchSettingsDef, Characters, MergePatterns, Settings,
 };
+use itertools::enumerate;
 use platform_dirs::AppDirs;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -631,15 +632,27 @@ fn run(
     let duration_graph = now.elapsed().as_micros();
 
     if settings.debug {
-        for branch in &graph.all_branches {
+        let tracks = graph.tracks.lock().unwrap();
+        for (br_inx, branch) in enumerate(&tracks.all_branches) {
+            let Some(branch_vis) = graph.layout.track_visual(br_inx) else {
+                eprintln!(
+                    "#{} {} (col --) ({:?}) {} s: --, t: --",
+                    br_inx,
+                    branch.name,
+                    branch.range,
+                    if branch.is_merged { "m" } else { "" },
+                );
+                continue;
+            };
             eprintln!(
-                "{} (col {}) ({:?}) {} s: {:?}, t: {:?}",
+                "#{} {} (col {}) ({:?}) {} s: {:?}, t: {:?}",
+                br_inx,
                 branch.name,
-                branch.visual.column.unwrap_or(99),
+                branch_vis.column.unwrap_or(99),
                 branch.range,
                 if branch.is_merged { "m" } else { "" },
-                branch.visual.source_order_group,
-                branch.visual.target_order_group
+                branch_vis.source_order_group,
+                branch_vis.target_order_group
             );
         }
     }
@@ -660,7 +673,7 @@ fn run(
             "Graph construction: {:.1} ms, printing: {:.1} ms ({} commits)",
             duration_graph as f32 / 1000.0,
             duration_print as f32 / 1000.0,
-            graph.commits.len()
+            graph.tracks.lock().unwrap().commits.len()
         );
     }
     Ok(())
