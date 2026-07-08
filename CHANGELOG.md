@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add clippy warning for complex functions.
 - Code refactoring to make it easier to understand.
 - Extract library part into crate gleisbau
+- Update git2 dependency to version 0.21 (fix relative worktrees)
 
 ### Removed
 

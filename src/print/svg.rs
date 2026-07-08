@@ -12,7 +12,7 @@ use svg::Document;
 
 /// Creates a SVG visual representation of a graph.
 pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String> {
-    let tracks = graph.tracks.lock().unwrap();
+    let tracks = &graph.tracks;
     let layout = &graph.layout;
     let mut document = Document::new();
 
@@ -23,7 +23,7 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
     if settings.debug {
         for (branch_inx, branch) in enumerate(&tracks.all_branches) {
             if let (Some(start), Some(end)) = branch.range {
-                let branch_visual = layout.track_visual(branch_inx).unwrap();
+                let branch_visual = layout.track_visual(branch_inx.into()).unwrap();
                 document = document.add(bold_line(
                     start,
                     branch_visual.column.unwrap(),
@@ -41,7 +41,9 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         document = document.add(draw_commit(info, graph, idx));
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
-        let commit_summary = commit.summary().unwrap_or("");
+        let commit_summary = commit.summary()
+            .map_err(|err| err.message().to_string())?
+            .unwrap_or("");
 
         document = document.add(draw_summary(idx, max_column, commit_summary));
 
@@ -99,7 +101,7 @@ fn set_document_size(
 }
 
 fn find_max_column(graph: &GitGraph) -> usize {
-    let tracks = graph.tracks.lock().unwrap();
+    let tracks = &graph.tracks;
     let layout = &graph.layout;
     tracks
         .commits
@@ -115,7 +117,7 @@ fn find_max_column(graph: &GitGraph) -> usize {
 
 // index is graph.commits[index]
 fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
-    let tracks = graph.tracks.lock().unwrap();
+    let tracks = &graph.tracks;
     let layout = &graph.layout;
     let mut group = Group::new();
 
@@ -123,11 +125,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
         let branch_visual = graph.layout.track_visual(trace).unwrap();
         let branch_color = &branch_visual.svg_color;
 
-        for p in 0..2 {
-            let parent = info.parents[p];
-            let Some(par_oid) = parent else {
-                continue;
-            };
+        for par_oid in &info.parents {
             let Some(par_idx) = tracks.indices.get(&par_oid) else {
                 // Parent is outside scope of tracks.indices
                 // so draw a vertical line to the bottom
@@ -155,7 +153,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
                 } else {
                     get_deviate_index(&tracks, layout, index, *par_idx)
                 },
-                if info.is_merge {
+                if info.is_merge() {
                     &par_branch_visual.svg_color
                 } else {
                     branch_color
@@ -168,7 +166,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
                 index,
                 branch_visual.column.unwrap(),
                 branch_color,
-                !info.is_merge,
+                !info.is_merge(),
             )
             .add(Title::new(info.oid.to_string())),
         );

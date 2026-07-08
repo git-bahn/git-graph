@@ -240,11 +240,7 @@ fn draw_parent_lines(
 
     let branch_color = branch.visual.term_color;
 
-    for p in 0..2 {
-        let parent = info.parents[p];
-        let Some(par_oid) = parent else {
-            continue;
-        };
+    for (p, par_oid) in info.parents.iter().enumerate() {
         let Some(par_idx) = tracks.indices.get(&par_oid) else {
             // Parent is outside scope of tracks.indices
             // so draw a vertical line to the bottom
@@ -603,12 +599,8 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
             // Get the visual column of the current commit's branch. Unwrap is safe as explained above.
             let column = branch.visual.column.unwrap();
 
-            // Iterate through the two possible parents of the current commit.
-            for p in 0..2 {
-                let parent = info.parents[p];
-                let Some(par_oid) = parent else {
-                    continue;
-                };
+            // Iterate through the parents of the current commit.
+            for (p, par_oid) in info.parents.iter().enumerate() {
                 // Try to find the index of the parent commit in the `tracks.commits` vector.
                 if let Some(par_idx) = tracks.indices.get(&par_oid) {
                     let par_info = &tracks.commits[*par_idx];

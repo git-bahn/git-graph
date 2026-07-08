@@ -24,6 +24,8 @@ use gleisbau::settings::{
 use itertools::enumerate;
 use platform_dirs::AppDirs;
 use std::path::PathBuf;
+use std::borrow::Borrow;
+use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -50,7 +52,7 @@ fn from_args() -> Result<(), String> {
 
     run(
         ses.repository.unwrap(),
-        ses.settings.as_ref().unwrap(),
+        Rc::new(ses.settings.unwrap()),
         ses.svg,
         ses.commit_limit,
         ses.refspecs,
@@ -614,7 +616,7 @@ fn match_format_args(_ses: &mut Session, matches: &ArgMatches) -> Result<CommitF
 
 fn run(
     repository: Repository,
-    settings: &Settings,
+    settings: Rc<Settings>,
     svg: bool,
     max_commits: Option<usize>,
     refspecs: Vec<String>,
@@ -622,19 +624,20 @@ fn run(
     let now = Instant::now();
     let mut graph_builder = GraphBuilder::new()
         .with_repository(repository)
-        .with_settings(settings)
+        .with_settings(settings.clone())
         .with_refspecs(refspecs);
     if let Some(max_commits) = max_commits {
         graph_builder = graph_builder.with_max_count(max_commits);
     }
     let graph = graph_builder.build()?;
+    let settings: &Settings = settings.borrow();
 
     let duration_graph = now.elapsed().as_micros();
 
     if settings.debug {
-        let tracks = graph.tracks.lock().unwrap();
+        let tracks = &graph.tracks;
         for (br_inx, branch) in enumerate(&tracks.all_branches) {
-            let Some(branch_vis) = graph.layout.track_visual(br_inx) else {
+            let Some(branch_vis) = graph.layout.track_visual(br_inx.into()) else {
                 eprintln!(
                     "#{} {} (col --) ({:?}) {} s: --, t: --",
                     br_inx,
@@ -673,7 +676,7 @@ fn run(
             "Graph construction: {:.1} ms, printing: {:.1} ms ({} commits)",
             duration_graph as f32 / 1000.0,
             duration_print as f32 / 1000.0,
-            graph.tracks.lock().unwrap().commits.len()
+            graph.tracks.commits.len()
         );
     }
     Ok(())
