@@ -1,6 +1,6 @@
 [package]
 name = "git-graph"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["Martin Lange <martin_lange_@gmx.net>"]
 description = "Command line tool to show clear git graphs arranged for your branching model"
 repository = "https://github.com/mlange-42/git-graph.git"
