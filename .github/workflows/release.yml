@@ -29,7 +29,7 @@ jobs:
             os_name: "macos-amd64"
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Get tag or commit
         run: |
@@ -52,7 +52,7 @@ jobs:
         shell: bash
 
       - name: Archive build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}
           path: release.tar.gz
