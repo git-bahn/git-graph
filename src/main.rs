@@ -23,8 +23,9 @@ use gleisbau::settings::{
 };
 use itertools::enumerate;
 use platform_dirs::AppDirs;
-use std::path::PathBuf;
 use std::borrow::Borrow;
+use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
@@ -56,6 +57,7 @@ fn from_args() -> Result<(), String> {
         ses.svg,
         ses.commit_limit,
         ses.refspecs,
+        ses.pager,
     )
 }
 
@@ -135,6 +137,13 @@ fn match_args() -> ArgMatches {
                 .num_args(1),
         )
         .arg(
+            Arg::new("no-pager")
+                .long("no-pager")
+                .help("Use no pager (print everything at once without prompt).")
+                .required(false)
+                .num_args(0),
+        )
+        .arg(
             Arg::new("refspecs")
                 .help(
                     "Branch names or refspecs to show.\n  \
@@ -210,6 +219,11 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
         .map(|vals| vals.cloned().collect())
         .unwrap_or_default();
 
+    ses.pager = matches
+        .get_one::<bool>("no-pager")
+        .map(|b| !*b)
+        .unwrap_or(true);
+
     Ok(run_application)
 }
 
@@ -225,6 +239,7 @@ struct Session {
     pub svg: bool,
     pub commit_limit: Option<usize>,
     pub refspecs: Vec<String>,
+    pub pager: bool,
 }
 
 impl Session {
@@ -241,6 +256,8 @@ impl Session {
             svg: false,
             commit_limit: None,
             refspecs: Vec::new(),
+
+            pager: true,
         }
     }
 }
@@ -620,6 +637,7 @@ fn run(
     svg: bool,
     max_commits: Option<usize>,
     refspecs: Vec<String>,
+    pager: bool,
 ) -> Result<(), String> {
     let now = Instant::now();
     let mut graph_builder = GraphBuilder::new()
@@ -665,6 +683,13 @@ fn run(
     if svg {
         println!("{}", print_svg(&graph, settings)?);
     } else {
+        if pager && should_page() {
+            let pager_command = git_pager();
+
+            let mut pager = pager::Pager::with_pager(&pager_command);
+            pager.setup();
+        }
+
         let (g_lines, t_lines, _indices) = print_unicode(&graph, settings)?;
         print_unpaged(&g_lines, &t_lines);
     };
@@ -680,6 +705,32 @@ fn run(
         );
     }
     Ok(())
+}
+
+fn git_pager() -> String {
+    std::env::var("GIT_PAGER")
+        .ok()
+        .or_else(|| {
+            std::process::Command::new("git")
+                .args(["config", "--get", "core.pager"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| std::env::var("PAGER").ok())
+        .unwrap_or_else(|| "less".to_owned())
+}
+
+fn should_page() -> bool {
+    if !std::io::stdout().is_terminal() {
+        return false;
+    }
+
+    let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
+
+    width > 0 && height > 0
 }
 
 /// Print the graph, un-paged.
