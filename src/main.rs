@@ -4,14 +4,15 @@
 #![warn(clippy::cognitive_complexity)]
 #![warn(clippy::too_many_lines)]
 
+mod cli;
 // TODO remove code once gleisbau API has stabilized
 // Some of these features might return to the CLI tool (this application)
 //mod config;
 mod print;
 
+use crate::cli::{Cli, CliCommand, ColorMode, Model};
 use crate::print::svg::print_svg;
-use camino::Utf8PathBuf;
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use clap::Parser;
 use git2::Repository;
 use gleisbau::config::{create_config, get_available_models, get_model, get_model_name, set_model};
 use gleisbau::get_repo;
@@ -23,10 +24,8 @@ use gleisbau::settings::{
 };
 use itertools::enumerate;
 use platform_dirs::AppDirs;
-use std::path::PathBuf;
 use std::borrow::Borrow;
-use std::convert::Infallible;
-use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
@@ -59,336 +58,6 @@ fn from_args() -> Result<(), String> {
         ses.commit_limit,
         ses.refspecs,
     )
-}
-
-/// Structured Git graphs for your branching model
-///
-/// https://github.com/mlange-42/git-graph
-///
-/// Examples:
-///     git-graph                   Show graph
-///     git-graph --style round     Show graph in a different style
-///     git-graph --model <model>   Show graph using a certain <model>
-///     git-graph model --list      List available branching models
-///     git-graph model             Show repo's current branching model
-///     git-graph model <model>     Permanently set model <model> for this repo
-#[derive(Parser)]
-#[command(version, verbatim_doc_comment)]
-struct Cli {
-    /// Open repository from this path or above
-    #[arg(long, short, value_name = "path", default_value = ".")]
-    path: Utf8PathBuf,
-
-    /// Skip owner validation for the repository (insecure, see --help)
-    ///
-    /// This turns off libgit2's owner validation, which may increase security risks.
-    /// Please do not disable this validation for repositories you do not trust.
-    #[arg(long)]
-    skip_repo_owner_validation: bool,
-
-    /// Branching model: git-flow, simple or none
-    ///
-    /// Defaults to the model set for the repository, or git-flow if none is set.
-    /// To permanently set the model for a repository, use 'git-graph model <model>'.
-    #[arg(long, short, value_name = "model")]
-    model: Option<Model>,
-
-    /// Maximum number of commits to show
-    #[arg(long, short = 'n', value_name = "n")]
-    max_count: Option<u32>,
-
-    /// When to use colors
-    #[arg(long, value_name = "color", default_value = "auto")]
-    color: ColorMode,
-
-    /// Print without colors, overrides --color
-    ///
-    /// Missing color support should be detected automatically,
-    /// e.g. when piping to a file.
-    #[arg(long)]
-    no_color: bool,
-
-    /// Line wrapping for formatted commit text
-    ///
-    /// Argument format: [<width>|auto|none [<indent1> [<indent2>]]]
-    /// 'auto' uses the terminal's width if on a terminal.
-    ///
-    /// Examples:
-    ///     git-graph --wrap auto
-    ///     git-graph --wrap auto 0 8
-    ///     git-graph --wrap none
-    ///     git-graph --wrap 80
-    ///     git-graph --wrap 80 0 8
-    #[arg(
-        long,
-        short,
-        value_name = "wrap",
-        action = ArgAction::Set,
-        num_args = 0..=3,
-        default_values = ["auto", "0", "8"],
-        verbatim_doc_comment
-    )]
-    wrap: Vec<WrapToken>,
-
-    /// Commit format: oneline, short, medium, full or "<string>"
-    ///
-    /// The first character can be used as abbreviation, e.g. '-f m'.
-    ///
-    /// Formatting placeholders for "<string>":
-    ///     %n    newline
-    ///     %H    commit hash
-    ///     %h    abbreviated commit hash
-    ///     %P    parent commit hashes
-    ///     %p    abbreviated parent commit hashes
-    ///     %d    refs (branches, tags)
-    ///     %s    commit summary
-    ///     %b    commit message body
-    ///     %B    raw body (subject and body)
-    ///     %an   author name
-    ///     %ae   author email
-    ///     %ad   author date
-    ///     %as   author date in short format 'YYYY-MM-DD'
-    ///     %cn   committer name
-    ///     %ce   committer email
-    ///     %cd   committer date
-    ///     %cs   committer date in short format 'YYYY-MM-DD'
-    ///
-    /// Modifiers after the % of a placeholder:
-    ///     +     (plus sign) a line-feed is inserted immediately before the
-    ///           expansion if and only if the placeholder expands to a
-    ///           non-empty string
-    ///     -     (minus sign) all consecutive line-feeds immediately preceding
-    ///           the expansion are deleted if and only if the placeholder
-    ///           expands to an empty string
-    ///     ' '   (space) a space is inserted immediately before the expansion
-    ///           if and only if the placeholder expands to a non-empty string
-    ///
-    /// See also the respective git help: https://git-scm.com/docs/pretty-formats
-    #[arg(
-        long,
-        short,
-        value_name = "format",
-        default_value = "oneline",
-        verbatim_doc_comment
-    )]
-    format: String,
-
-    //
-    //  other flags
-    //
-    /// Reverse the order of commits
-    #[arg(long, short)]
-    reverse: bool,
-
-    /// Show only local branches, no remotes
-    #[arg(long, short)]
-    local: bool,
-
-    /// Render graph as SVG instead of text-based
-    #[arg(long)]
-    svg: bool,
-
-    /// Additional debug output and graphics
-    #[arg(long, short)]
-    debug: bool,
-
-    /// Print a less compact graph
-    ///
-    /// Merge lines point to target lines rather than merge commits.
-    #[arg(long, short = 'S')]
-    sparse: bool,
-
-    /// Output style: thin/normal, round, bold, double or ascii
-    ///
-    /// The first character can be used as abbreviation, e.g. '-s r'.
-    #[arg(long, short, value_name = "style", default_value = "thin")]
-    style: String,
-
-    /// Branch names or refspecs to show
-    ///
-    /// Only the subgraph between the merge-base and the tips is displayed.
-    #[arg(value_name = "refspecs", num_args = 1..)]
-    refspecs: Vec<String>,
-
-    #[command(subcommand)]
-    command: Option<CliCommand>,
-}
-
-#[derive(Subcommand)]
-enum CliCommand {
-    /// Print or permanently set the branching model for a repository
-    Model(ModelArgs),
-}
-
-#[derive(Args)]
-struct ModelArgs {
-    /// Branching model to set: git-flow, simple or none
-    ///
-    /// When not given, prints the currently set model.
-    #[arg(value_name = "model")]
-    model: Option<Model>,
-
-    /// List all available branching models
-    #[arg(long, short)]
-    list: bool,
-}
-
-/// Branching model, either one of the presets or a custom model
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Model {
-    GitFlow,
-    Simple,
-    None,
-    /// Name of a custom model file in the models directory, without `.toml`
-    Custom(String),
-}
-
-impl Model {
-    fn as_str(&self) -> &str {
-        match self {
-            Model::GitFlow => "git-flow",
-            Model::Simple => "simple",
-            Model::None => "none",
-            Model::Custom(name) => name,
-        }
-    }
-}
-
-impl FromStr for Model {
-    type Err = Infallible;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        Ok(match str {
-            "git-flow" => Model::GitFlow,
-            "simple" => Model::Simple,
-            "none" => Model::None,
-            other => Model::Custom(other.to_string()),
-        })
-    }
-}
-
-impl fmt::Display for Model {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// When to use colors
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum ColorMode {
-    /// Use colors if printing to a terminal
-    Auto,
-    /// Always use colors
-    Always,
-    /// Never use colors
-    Never,
-}
-
-/// A single value passed to `--wrap`
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WrapToken {
-    None,
-    Auto,
-    Number(usize),
-}
-
-impl FromStr for WrapToken {
-    type Err = String;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        match str {
-            "none" => Ok(WrapToken::None),
-            "auto" => Ok(WrapToken::Auto),
-            _ => str
-                .parse()
-                .map(WrapToken::Number)
-                .map_err(|_| "expected 'auto', 'none' or a positive number".to_string()),
-        }
-    }
-}
-
-impl fmt::Display for WrapToken {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            WrapToken::None => f.write_str("none"),
-            WrapToken::Auto => f.write_str("auto"),
-            WrapToken::Number(number) => write!(f, "{}", number),
-        }
-    }
-}
-
-/// Line wrapping for formatted commit text, built from the values passed to `--wrap`
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Wrap {
-    /// No wrapping
-    None,
-    /// Wrap at the terminal's width if on a terminal
-    Auto {
-        indent1: Option<usize>,
-        indent2: Option<usize>,
-    },
-    /// Wrap at a fixed width
-    Width {
-        width: usize,
-        indent1: Option<usize>,
-        indent2: Option<usize>,
-    },
-}
-
-impl Wrap {
-    fn into_settings(self) -> WrapType {
-        match self {
-            Wrap::None => None,
-            Wrap::Auto { indent1, indent2 } => Some((None, indent1, indent2)),
-            Wrap::Width {
-                width,
-                indent1,
-                indent2,
-            } => Some((Some(width), indent1, indent2)),
-        }
-    }
-}
-
-impl TryFrom<&[WrapToken]> for Wrap {
-    type Error = String;
-
-    fn try_from(tokens: &[WrapToken]) -> Result<Self, Self::Error> {
-        // Indents following the first value must be numbers
-        let indents = |rest: &[WrapToken]| {
-            rest.iter()
-                .map(|token| match token {
-                    WrapToken::Number(number) => Ok(*number),
-                    _ => Err(format!(
-                        "ERROR: Can't parse option --wrap '{}' to integers.",
-                        itertools::join(tokens, " ")
-                    )),
-                })
-                .collect::<Result<Vec<_>, _>>()
-        };
-
-        match tokens {
-            [] => Ok(Wrap::Auto {
-                indent1: Some(0),
-                indent2: Some(8),
-            }),
-            [WrapToken::None, ..] => Ok(Wrap::None),
-            [WrapToken::Auto, rest @ ..] => {
-                let indents = indents(rest)?;
-                Ok(Wrap::Auto {
-                    indent1: indents.first().copied(),
-                    indent2: indents.get(1).copied(),
-                })
-            }
-            [WrapToken::Number(width), rest @ ..] => {
-                let indents = indents(rest)?;
-                Ok(Wrap::Width {
-                    width: *width,
-                    indent1: indents.first().copied(),
-                    indent2: indents.get(1).copied(),
-                })
-            }
-        }
-    }
 }
 
 /// Return true if session should continue, false if it should exit now
@@ -425,11 +94,14 @@ fn configure_session(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
 
     let model = match_model_opt(ses, cli)?;
 
-    let format = match_format_args(ses, cli)?;
+    let format = {
+        let _ses: &mut Session = ses;
+        CommitFormat::from_str(&cli.format)
+    }?;
 
     let colored = match_color_args(ses, cli)?;
 
-    let wrapping = match_wrap_args(ses, cli)?;
+    let wrapping = crate::cli::Wrap::try_from(&cli.wrap[..]).map(|w| w.into_settings())?;
 
     let settings = Settings {
         reverse_commit_order,
@@ -536,7 +208,12 @@ fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> 
                 }
             }
             Some(model) => {
-                set_model(repository, model.as_str(), REPO_CONFIG_FILE, &ses.models_dir)?;
+                set_model(
+                    repository,
+                    model.as_str(),
+                    REPO_CONFIG_FILE,
+                    &ses.models_dir,
+                )?;
                 eprint!("Branching model set to '{}'", model);
             }
         };
@@ -584,21 +261,6 @@ fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
     };
 
     Ok(colored)
-}
-
-//
-//  wrap flag
-//
-
-type WrapType = Option<(Option<usize>, Option<usize>, Option<usize>)>;
-fn match_wrap_args(_ses: &mut Session, cli: &Cli) -> Result<WrapType, String> {
-    let wrap = Wrap::try_from(&cli.wrap[..])?;
-    Ok(wrap.into_settings())
-}
-
-fn match_format_args(_ses: &mut Session, cli: &Cli) -> Result<CommitFormat, String> {
-    let format = CommitFormat::from_str(&cli.format)?;
-    Ok(format)
 }
 
 //
