@@ -75,7 +75,8 @@ fn configure_session(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
     if match_model_subcommand(ses, cli)? {
         return Ok(exit_now); // Exit after model subcommand
     }
-    match_commit_limit_args(ses, cli)?;
+
+    ses.commit_limit = cli.max_count.map(|max_count| max_count as usize);
 
     let include_remote = !cli.local;
 
@@ -92,7 +93,12 @@ fn configure_session(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
         style
     };
 
-    let model = match_model_opt(ses, cli)?;
+    let model = get_model(
+        ses.repository.as_ref().unwrap(),
+        cli.model.as_ref().map(Model::as_str),
+        REPO_CONFIG_FILE,
+        &ses.models_dir,
+    )?;
 
     let format = {
         let _ses: &mut Session = ses;
@@ -220,22 +226,6 @@ fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> 
         return Ok(true);
     }
     Ok(false)
-}
-
-fn match_model_opt(ses: &mut Session, cli: &Cli) -> Result<BranchSettingsDef, String> {
-    let model = get_model(
-        ses.repository.as_ref().unwrap(),
-        cli.model.as_ref().map(Model::as_str),
-        REPO_CONFIG_FILE,
-        &ses.models_dir,
-    )?;
-    Ok(model)
-}
-
-fn match_commit_limit_args(ses: &mut Session, cli: &Cli) -> Result<(), String> {
-    ses.commit_limit = cli.max_count.map(|max_count| max_count as usize);
-
-    Ok(())
 }
 
 fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
