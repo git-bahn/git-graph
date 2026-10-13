@@ -10,8 +10,8 @@
 mod print;
 
 use crate::print::svg::print_svg;
-use clap::ArgMatches;
-use clap::{crate_version, Arg, Command};
+use camino::Utf8PathBuf;
+use clap::{ArgAction, Args, Parser, Subcommand};
 use git2::Repository;
 use gleisbau::config::{create_config, get_available_models, get_model, get_model_name, set_model};
 use gleisbau::get_repo;
@@ -45,8 +45,8 @@ fn from_args() -> Result<(), String> {
     let mut ses = Session::new();
     store_default_models(&mut ses)?;
 
-    let matches = match_args();
-    if !configure_session(&mut ses, &matches)? {
+    let cli = Cli::parse();
+    if !configure_session(&mut ses, &cli)? {
         return Ok(()); // If the configuration decided session should not start
     };
 
@@ -59,122 +59,203 @@ fn from_args() -> Result<(), String> {
     )
 }
 
-fn match_args() -> ArgMatches {
-    // Declare command line argument interface for clap
-    let app = Command::new("git-graph").version(crate_version!()).about(
-        "Structured Git graphs for your branching model.\n    \
-                 https://github.com/mlange-42/git-graph\n\
-             \n\
-             EXAMPES:\n    \
-                 git-graph                   -> Show graph\n    \
-                 git-graph --style round     -> Show graph in a different style\n    \
-                 git-graph --model <model>   -> Show graph using a certain <model>\n    \
-                 git-graph model --list      -> List available branching models\n    \
-                 git-graph model             -> Show repo's current branching models\n    \
-                 git-graph model <model>     -> Permanently set model <model> for this repo",
-    );
-    let app = add_repo_args(app);
-    let app = add_model_args(app);
-    let app = add_commit_limit_args(app);
-    let app = add_color_args(app);
-    let app = add_wrap_args(app);
-    let app = add_format_args(app);
+/// Structured Git graphs for your branching model
+///
+/// https://github.com/mlange-42/git-graph
+///
+/// Examples:
+///     git-graph                   Show graph
+///     git-graph --style round     Show graph in a different style
+///     git-graph --model <model>   Show graph using a certain <model>
+///     git-graph model --list      List available branching models
+///     git-graph model             Show repo's current branching model
+///     git-graph model <model>     Permanently set model <model> for this repo
+#[derive(Parser)]
+#[command(version, verbatim_doc_comment)]
+struct Cli {
+    /// Open repository from this path or above
+    #[arg(long, short, value_name = "path", default_value = ".")]
+    path: Utf8PathBuf,
 
-    let app = app
-        .arg(
-            Arg::new("reverse")
-                .long("reverse")
-                .short('r')
-                .help("Reverse the order of commits.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("local")
-                .long("local")
-                .short('l')
-                .help("Show only local branches, no remotes.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("svg")
-                .long("svg")
-                .help("Render graph as SVG instead of text-based.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("debug")
-                .long("debug")
-                .short('d')
-                .help("Additional debug output and graphics.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("sparse")
-                .long("sparse")
-                .short('S')
-                .help(
-                    "Print a less compact graph: merge lines point to target lines\n\
-                       rather than merge commits.",
-                )
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("style")
-                .long("style")
-                .short('s')
-                .help(
-                    "Output style. One of [normal/thin|round|bold|double|ascii].\n  \
-                         (First character can be used as abbreviation, e.g. '-s r')",
-                )
-                .required(false)
-                .num_args(1),
-        )
-        .arg(
-            Arg::new("refspecs")
-                .help(
-                    "Branch names or refspecs to show.\n  \
-                         Only the subgraph between the merge-base and the tips is displayed.",
-                )
-                .num_args(1..),
-        );
+    /// Skip owner validation for the repository (insecure, see --help)
+    ///
+    /// This turns off libgit2's owner validation, which may increase security risks.
+    /// Please do not disable this validation for repositories you do not trust.
+    #[arg(long)]
+    skip_repo_owner_validation: bool,
 
-    // Return match of declared arguments with what is present on command line
-    app.get_matches()
+    /// Branching model: git-flow, simple or none
+    ///
+    /// Defaults to the model set for the repository, or git-flow if none is set.
+    /// To permanently set the model for a repository, use 'git-graph model <model>'.
+    #[arg(long, short, value_name = "model")]
+    model: Option<String>,
+
+    /// Maximum number of commits to show
+    #[arg(long, short = 'n', value_name = "n")]
+    max_count: Option<String>,
+
+    /// When to use colors: auto, always or never
+    #[arg(long, value_name = "color", default_value = "auto")]
+    color: String,
+
+    /// Print without colors, overrides --color
+    ///
+    /// Missing color support should be detected automatically,
+    /// e.g. when piping to a file.
+    #[arg(long)]
+    no_color: bool,
+
+    /// Line wrapping for formatted commit text
+    ///
+    /// Argument format: [<width>|auto|none [<indent1> [<indent2>]]]
+    /// 'auto' uses the terminal's width if on a terminal.
+    ///
+    /// Examples:
+    ///     git-graph --wrap auto
+    ///     git-graph --wrap auto 0 8
+    ///     git-graph --wrap none
+    ///     git-graph --wrap 80
+    ///     git-graph --wrap 80 0 8
+    #[arg(
+        long,
+        short,
+        value_name = "wrap",
+        action = ArgAction::Set,
+        num_args = 0..=3,
+        default_values = ["auto", "0", "8"],
+        verbatim_doc_comment
+    )]
+    wrap: Option<Vec<String>>,
+
+    /// Commit format: oneline, short, medium, full or "<string>"
+    ///
+    /// The first character can be used as abbreviation, e.g. '-f m'.
+    ///
+    /// Formatting placeholders for "<string>":
+    ///     %n    newline
+    ///     %H    commit hash
+    ///     %h    abbreviated commit hash
+    ///     %P    parent commit hashes
+    ///     %p    abbreviated parent commit hashes
+    ///     %d    refs (branches, tags)
+    ///     %s    commit summary
+    ///     %b    commit message body
+    ///     %B    raw body (subject and body)
+    ///     %an   author name
+    ///     %ae   author email
+    ///     %ad   author date
+    ///     %as   author date in short format 'YYYY-MM-DD'
+    ///     %cn   committer name
+    ///     %ce   committer email
+    ///     %cd   committer date
+    ///     %cs   committer date in short format 'YYYY-MM-DD'
+    ///
+    /// Modifiers after the % of a placeholder:
+    ///     +     (plus sign) a line-feed is inserted immediately before the
+    ///           expansion if and only if the placeholder expands to a
+    ///           non-empty string
+    ///     -     (minus sign) all consecutive line-feeds immediately preceding
+    ///           the expansion are deleted if and only if the placeholder
+    ///           expands to an empty string
+    ///     ' '   (space) a space is inserted immediately before the expansion
+    ///           if and only if the placeholder expands to a non-empty string
+    ///
+    /// See also the respective git help: https://git-scm.com/docs/pretty-formats
+    #[arg(
+        long,
+        short,
+        value_name = "format",
+        default_value = "oneline",
+        verbatim_doc_comment
+    )]
+    format: String,
+
+    //
+    //  other flags
+    //
+    /// Reverse the order of commits
+    #[arg(long, short)]
+    reverse: bool,
+
+    /// Show only local branches, no remotes
+    #[arg(long, short)]
+    local: bool,
+
+    /// Render graph as SVG instead of text-based
+    #[arg(long)]
+    svg: bool,
+
+    /// Additional debug output and graphics
+    #[arg(long, short)]
+    debug: bool,
+
+    /// Print a less compact graph
+    ///
+    /// Merge lines point to target lines rather than merge commits.
+    #[arg(long, short = 'S')]
+    sparse: bool,
+
+    /// Output style: thin/normal, round, bold, double or ascii
+    ///
+    /// The first character can be used as abbreviation, e.g. '-s r'.
+    #[arg(long, short, value_name = "style", default_value = "thin")]
+    style: String,
+
+    /// Branch names or refspecs to show
+    ///
+    /// Only the subgraph between the merge-base and the tips is displayed.
+    #[arg(value_name = "refspecs", num_args = 1..)]
+    refspecs: Vec<String>,
+
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+}
+
+#[derive(Subcommand)]
+enum CliCommand {
+    /// Print or permanently set the branching model for a repository
+    Model(ModelArgs),
+}
+
+#[derive(Args)]
+struct ModelArgs {
+    /// Branching model to set: git-flow, simple or none
+    ///
+    /// When not given, prints the currently set model.
+    #[arg(value_name = "model")]
+    model: Option<String>,
+
+    /// List all available branching models
+    #[arg(long, short)]
+    list: bool,
 }
 
 /// Return true if session should continue, false if it should exit now
-fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, String> {
+fn configure_session(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
     // return values
     let exit_now = false;
     let run_application = true;
 
-    if match_model_list(ses, matches)? {
+    if match_model_list(ses, cli)? {
         return Ok(exit_now); // Exit after showing model list
     }
 
-    match_repo_args(ses, matches)?;
+    match_repo_args(ses, cli)?;
 
-    if match_model_subcommand(ses, matches)? {
+    if match_model_subcommand(ses, cli)? {
         return Ok(exit_now); // Exit after model subcommand
     }
-    match_commit_limit_args(ses, matches)?;
+    match_commit_limit_args(ses, cli)?;
 
-    let include_remote = !matches.get_flag("local");
+    let include_remote = !cli.local;
 
-    let reverse_commit_order = matches.get_flag("reverse");
+    let reverse_commit_order = cli.reverse;
 
-    ses.svg = matches.get_flag("svg");
-    let compact = !matches.get_flag("sparse");
-    let debug = matches.get_flag("debug");
-    let style = matches
-        .get_one::<String>("style")
-        .map(|s| Characters::from_str(s))
-        .unwrap_or_else(|| Ok(Characters::thin()))?;
+    ses.svg = cli.svg;
+    let compact = !cli.sparse;
+    let debug = cli.debug;
+    let style = Characters::from_str(&cli.style)?;
 
     let style = if reverse_commit_order {
         style.reverse()
@@ -182,13 +263,13 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
         style
     };
 
-    let model = match_model_opt(ses, matches)?;
+    let model = match_model_opt(ses, cli)?;
 
-    let format = match_format_args(ses, matches)?;
+    let format = match_format_args(ses, cli)?;
 
-    let colored = match_color_args(ses, matches)?;
+    let colored = match_color_args(ses, cli)?;
 
-    let wrapping = match_wrap_args(ses, matches)?;
+    let wrapping = match_wrap_args(ses, cli)?;
 
     let settings = Settings {
         reverse_commit_order,
@@ -205,10 +286,7 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
     };
     ses.settings = Some(settings);
 
-    ses.refspecs = matches
-        .get_many::<String>("refspecs")
-        .map(|vals| vals.cloned().collect())
-        .unwrap_or_default();
+    ses.refspecs = cli.refspecs.clone();
 
     Ok(run_application)
 }
@@ -245,36 +323,12 @@ impl Session {
     }
 }
 
-fn add_repo_args(app: Command) -> Command {
-    app.arg(
-        Arg::new("path")
-            .long("path")
-            .short('p')
-            .help("Open repository from this path or above. Default '.'")
-            .required(false)
-            .num_args(1),
-    )
-    .arg(
-        Arg::new("skip-repo-owner-validation")
-            .long("skip-repo-owner-validation")
-            .help(
-                "Skip owner validation for the repository.\n\
-                This will turn off libgit2's owner validation, which may increase security risks.\n\
-                Please do not disable this validation for repositories you do not trust.",
-            )
-            .required(false)
-            .num_args(0),
-    )
-}
-
-fn match_repo_args(ses: &mut Session, matches: &ArgMatches) -> Result<(), String> {
-    let skip_repo_owner_validation = matches.get_flag("skip-repo-owner-validation");
+fn match_repo_args(ses: &mut Session, cli: &Cli) -> Result<(), String> {
+    let skip_repo_owner_validation = cli.skip_repo_owner_validation;
     if skip_repo_owner_validation {
         println!("Warning: skip-repo-owner-validation is set! ");
     }
-    let default_path = ".".to_string();
-    let path = matches.get_one::<String>("path").unwrap_or(&default_path);
-    let repository = get_repo(path, skip_repo_owner_validation)
+    let repository = get_repo(&cli.path, skip_repo_owner_validation)
         .map_err(|err| format!("ERROR: {}\n       Navigate into a repository before running git-graph, or use option --path", err.message()))?;
 
     ses.repository = Some(repository);
@@ -297,42 +351,9 @@ fn store_default_models(ses: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-fn add_model_args(app: Command) -> Command {
-    app
-        .arg(
-            Arg::new("model")
-                .long("model")
-                .short('m')
-                .help("Branching model. Available presets are [simple|git-flow|none].\n\
-                       Default: git-flow. \n\
-                       Permanently set the model for a repository with\n\
-                         > git-graph model <model>")
-                .required(false)
-                .num_args(1),
-        )
-        .subcommand(Command::new("model")
-        .about("Prints or permanently sets the branching model for a repository.")
-        .arg(
-            Arg::new("model")
-                .help("The branching model to be used. Available presets are [simple|git-flow|none].\n\
-                        When not given, prints the currently set model.")
-                .value_name("model")
-                .num_args(1)
-                .required(false)
-                .index(1))
-        .arg(
-            Arg::new("list")
-                .long("list")
-                .short('l')
-                .help("List all available branching models.")
-                .required(false)
-                .num_args(0),
-    ))
-}
-
-fn match_model_list(ses: &mut Session, matches: &ArgMatches) -> Result<bool, String> {
-    if let Some(matches) = matches.subcommand_matches("model") {
-        if matches.get_flag("list") {
+fn match_model_list(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
+    if let Some(CliCommand::Model(model_args)) = &cli.command {
+        if model_args.list {
             println!(
                 "{}",
                 itertools::join(get_available_models(&ses.models_dir)?, "\n")
@@ -343,10 +364,10 @@ fn match_model_list(ses: &mut Session, matches: &ArgMatches) -> Result<bool, Str
     Ok(false)
 }
 
-fn match_model_subcommand(ses: &mut Session, matches: &ArgMatches) -> Result<bool, String> {
-    if let Some(matches) = matches.subcommand_matches("model") {
+fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
+    if let Some(CliCommand::Model(model_args)) = &cli.command {
         let repository = ses.repository.as_ref().unwrap();
-        match matches.get_one::<String>("model") {
+        match &model_args.model {
             None => {
                 let curr_model = get_model_name(repository, REPO_CONFIG_FILE)?;
                 match curr_model {
@@ -364,34 +385,18 @@ fn match_model_subcommand(ses: &mut Session, matches: &ArgMatches) -> Result<boo
     Ok(false)
 }
 
-fn match_model_opt(ses: &mut Session, matches: &ArgMatches) -> Result<BranchSettingsDef, String> {
+fn match_model_opt(ses: &mut Session, cli: &Cli) -> Result<BranchSettingsDef, String> {
     let model = get_model(
         ses.repository.as_ref().unwrap(),
-        matches.get_one::<String>("model").map(|s| &s[..]),
+        cli.model.as_deref(),
         REPO_CONFIG_FILE,
         &ses.models_dir,
     )?;
     Ok(model)
 }
 
-//
-//  commit_limit flag
-//
-
-fn add_commit_limit_args(app: Command) -> Command {
-    app.arg(
-        Arg::new("max-count")
-            .long("max-count")
-            .short('n')
-            .help("Maximum number of commits")
-            .required(false)
-            .num_args(1)
-            .value_name("n"),
-    )
-}
-
-fn match_commit_limit_args(ses: &mut Session, matches: &ArgMatches) -> Result<(), String> {
-    ses.commit_limit = match matches.get_one::<String>("max-count") {
+fn match_commit_limit_args(ses: &mut Session, cli: &Cli) -> Result<(), String> {
+    ses.commit_limit = match &cli.max_count {
         None => None,
         Some(str) => match str.parse::<usize>() {
             Ok(val) => Some(val),
@@ -407,39 +412,11 @@ fn match_commit_limit_args(ses: &mut Session, matches: &ArgMatches) -> Result<()
     Ok(())
 }
 
-//
-//  color flag
-//
-
-fn add_color_args(app: Command) -> Command {
-    app.arg(
-        Arg::new("color")
-            .long("color")
-            .help(
-                "Specify when colors should be used. One of [auto|always|never].\n\
-                       Default: auto.",
-            )
-            .required(false)
-            .num_args(1),
-    )
-    .arg(
-        Arg::new("no-color")
-            .long("no-color")
-            .help(
-                "Print without colors. Missing color support should be detected\n\
-                       automatically (e.g. when piping to a file).\n\
-                       Overrides option '--color'",
-            )
-            .required(false)
-            .num_args(0),
-    )
-}
-
-fn match_color_args(_ses: &mut Session, matches: &ArgMatches) -> Result<bool, String> {
-    let colored = if matches.get_flag("no-color") {
+fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
+    let colored = if cli.no_color {
         false
-    } else if let Some(mode) = matches.get_one::<String>("color") {
-        match &mode[..] {
+    } else {
+        match &cli.color[..] {
             "auto" => {
                 atty::is(atty::Stream::Stdout)
                     && (!cfg!(windows) || {
@@ -461,12 +438,6 @@ fn match_color_args(_ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
                 ))
             }
         }
-    } else {
-        atty::is(atty::Stream::Stdout)
-            && (!cfg!(windows) || {
-                yansi::enable();
-                yansi::is_enabled()
-            })
     };
 
     Ok(colored)
@@ -476,36 +447,10 @@ fn match_color_args(_ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
 //  wrap flag
 //
 
-fn add_wrap_args(app: Command) -> Command {
-    app.arg(
-        Arg::new("wrap")
-            .long("wrap")
-            .short('w')
-            .help(
-                "Line wrapping for formatted commit text. Default: 'auto 0 8'\n\
-                       Argument format: [<width>|auto|none[ <indent1>[ <indent2>]]]\n\
-                       For examples, consult 'git-graph --help'",
-            )
-            .long_help(
-                "Line wrapping for formatted commit text. Default: 'auto 0 8'\n\
-                       Argument format: [<width>|auto|none[ <indent1>[ <indent2>]]]\n\
-                       Examples:\n    \
-                           git-graph --wrap auto\n    \
-                           git-graph --wrap auto 0 8\n    \
-                           git-graph --wrap none\n    \
-                           git-graph --wrap 80\n    \
-                           git-graph --wrap 80 0 8\n\
-                       'auto' uses the terminal's width if on a terminal.",
-            )
-            .required(false)
-            .num_args(0..=3),
-    )
-}
-
 type WrapType = Option<(Option<usize>, Option<usize>, Option<usize>)>;
-fn match_wrap_args(_ses: &mut Session, matches: &ArgMatches) -> Result<WrapType, String> {
-    let wrapping = if let Some(wrap_values) = matches.get_many::<String>("wrap") {
-        let strings = wrap_values.map(|s| s.as_str()).collect::<Vec<_>>();
+fn match_wrap_args(_ses: &mut Session, cli: &Cli) -> Result<WrapType, String> {
+    let wrapping = if let Some(wrap_values) = &cli.wrap {
+        let strings = wrap_values.iter().map(|s| s.as_str()).collect::<Vec<_>>();
         if strings.is_empty() {
             Some((None, Some(0), Some(8)))
         } else {
@@ -551,62 +496,8 @@ fn match_wrap_args(_ses: &mut Session, matches: &ArgMatches) -> Result<WrapType,
     Ok(wrapping)
 }
 
-//
-//  commit format flags - format
-//
-
-fn add_format_args(app: Command) -> Command {
-    app
-        .arg(
-            Arg::new("format")
-                .long("format")
-                .short('f')
-                .help("Commit format. One of [oneline|short|medium|full|\"<string>\"].\n  \
-                         (First character can be used as abbreviation, e.g. '-f m')\n\
-                       Default: oneline.\n\
-                       For placeholders supported in \"<string>\", consult 'git-graph --help'")
-                .long_help("Commit format. One of [oneline|short|medium|full|\"<string>\"].\n  \
-                              (First character can be used as abbreviation, e.g. '-f m')\n\
-                            Formatting placeholders for \"<string>\":\n    \
-                                %n    newline\n    \
-                                %H    commit hash\n    \
-                                %h    abbreviated commit hash\n    \
-                                %P    parent commit hashes\n    \
-                                %p    abbreviated parent commit hashes\n    \
-                                %d    refs (branches, tags)\n    \
-                                %s    commit summary\n    \
-                                %b    commit message body\n    \
-                                %B    raw body (subject and body)\n    \
-                                %an   author name\n    \
-                                %ae   author email\n    \
-                                %ad   author date\n    \
-                                %as   author date in short format 'YYYY-MM-DD'\n    \
-                                %cn   committer name\n    \
-                                %ce   committer email\n    \
-                                %cd   committer date\n    \
-                                %cs   committer date in short format 'YYYY-MM-DD'\n    \
-                                \n    \
-                                If you add a + (plus sign) after % of a placeholder,\n       \
-                                   a line-feed is inserted immediately before the expansion if\n       \
-                                   and only if the placeholder expands to a non-empty string.\n    \
-                                If you add a - (minus sign) after % of a placeholder, all\n       \
-                                   consecutive line-feeds immediately preceding the expansion are\n       \
-                                   deleted if and only if the placeholder expands to an empty string.\n    \
-                                If you add a ' ' (space) after % of a placeholder, a space is\n       \
-                                   inserted immediately before the expansion if and only if\n       \
-                                   the placeholder expands to a non-empty string.\n\
-                            \n    \
-                                See also the respective git help: https://git-scm.com/docs/pretty-formats\n")
-                .required(false)
-                .num_args(1),
-        )
-}
-
-fn match_format_args(_ses: &mut Session, matches: &ArgMatches) -> Result<CommitFormat, String> {
-    let format = match matches.get_one::<String>("format") {
-        None => CommitFormat::OneLine,
-        Some(str) => CommitFormat::from_str(str)?,
-    };
+fn match_format_args(_ses: &mut Session, cli: &Cli) -> Result<CommitFormat, String> {
+    let format = CommitFormat::from_str(&cli.format)?;
     Ok(format)
 }
 
