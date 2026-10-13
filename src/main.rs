@@ -105,7 +105,7 @@ fn configure_session(ses: &mut Session, cli: &Cli) -> Result<bool, String> {
         CommitFormat::from_str(&cli.format)
     }?;
 
-    let colored = match_color_args(ses, cli)?;
+    let colored = match_color_args(cli);
 
     let wrapping = crate::cli::Wrap::try_from(&cli.wrap[..]).map(|w| w.into_settings())?;
 
@@ -228,8 +228,8 @@ fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> 
     Ok(false)
 }
 
-fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
-    let colored = if cli.no_color {
+fn match_color_args(cli: &Cli) -> bool {
+    if cli.no_color {
         false
     } else {
         match cli.color {
@@ -248,9 +248,7 @@ fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
             }
             ColorMode::Never => false,
         }
-    };
-
-    Ok(colored)
+    }
 }
 
 //
