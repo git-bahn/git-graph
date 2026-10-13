@@ -11,7 +11,7 @@ mod print;
 
 use crate::print::svg::print_svg;
 use camino::Utf8PathBuf;
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use git2::Repository;
 use gleisbau::config::{create_config, get_available_models, get_model, get_model_name, set_model};
 use gleisbau::get_repo;
@@ -25,6 +25,8 @@ use itertools::enumerate;
 use platform_dirs::AppDirs;
 use std::path::PathBuf;
 use std::borrow::Borrow;
+use std::convert::Infallible;
+use std::fmt;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
@@ -89,15 +91,15 @@ struct Cli {
     /// Defaults to the model set for the repository, or git-flow if none is set.
     /// To permanently set the model for a repository, use 'git-graph model <model>'.
     #[arg(long, short, value_name = "model")]
-    model: Option<String>,
+    model: Option<Model>,
 
     /// Maximum number of commits to show
     #[arg(long, short = 'n', value_name = "n")]
-    max_count: Option<String>,
+    max_count: Option<u32>,
 
-    /// When to use colors: auto, always or never
+    /// When to use colors
     #[arg(long, value_name = "color", default_value = "auto")]
-    color: String,
+    color: ColorMode,
 
     /// Print without colors, overrides --color
     ///
@@ -126,7 +128,7 @@ struct Cli {
         default_values = ["auto", "0", "8"],
         verbatim_doc_comment
     )]
-    wrap: Option<Vec<String>>,
+    wrap: Vec<WrapToken>,
 
     /// Commit format: oneline, short, medium, full or "<string>"
     ///
@@ -224,11 +226,169 @@ struct ModelArgs {
     ///
     /// When not given, prints the currently set model.
     #[arg(value_name = "model")]
-    model: Option<String>,
+    model: Option<Model>,
 
     /// List all available branching models
     #[arg(long, short)]
     list: bool,
+}
+
+/// Branching model, either one of the presets or a custom model
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Model {
+    GitFlow,
+    Simple,
+    None,
+    /// Name of a custom model file in the models directory, without `.toml`
+    Custom(String),
+}
+
+impl Model {
+    fn as_str(&self) -> &str {
+        match self {
+            Model::GitFlow => "git-flow",
+            Model::Simple => "simple",
+            Model::None => "none",
+            Model::Custom(name) => name,
+        }
+    }
+}
+
+impl FromStr for Model {
+    type Err = Infallible;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        Ok(match str {
+            "git-flow" => Model::GitFlow,
+            "simple" => Model::Simple,
+            "none" => Model::None,
+            other => Model::Custom(other.to_string()),
+        })
+    }
+}
+
+impl fmt::Display for Model {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// When to use colors
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ColorMode {
+    /// Use colors if printing to a terminal
+    Auto,
+    /// Always use colors
+    Always,
+    /// Never use colors
+    Never,
+}
+
+/// A single value passed to `--wrap`
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WrapToken {
+    None,
+    Auto,
+    Number(usize),
+}
+
+impl FromStr for WrapToken {
+    type Err = String;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        match str {
+            "none" => Ok(WrapToken::None),
+            "auto" => Ok(WrapToken::Auto),
+            _ => str
+                .parse()
+                .map(WrapToken::Number)
+                .map_err(|_| "expected 'auto', 'none' or a positive number".to_string()),
+        }
+    }
+}
+
+impl fmt::Display for WrapToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WrapToken::None => f.write_str("none"),
+            WrapToken::Auto => f.write_str("auto"),
+            WrapToken::Number(number) => write!(f, "{}", number),
+        }
+    }
+}
+
+/// Line wrapping for formatted commit text, built from the values passed to `--wrap`
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Wrap {
+    /// No wrapping
+    None,
+    /// Wrap at the terminal's width if on a terminal
+    Auto {
+        indent1: Option<usize>,
+        indent2: Option<usize>,
+    },
+    /// Wrap at a fixed width
+    Width {
+        width: usize,
+        indent1: Option<usize>,
+        indent2: Option<usize>,
+    },
+}
+
+impl Wrap {
+    fn into_settings(self) -> WrapType {
+        match self {
+            Wrap::None => None,
+            Wrap::Auto { indent1, indent2 } => Some((None, indent1, indent2)),
+            Wrap::Width {
+                width,
+                indent1,
+                indent2,
+            } => Some((Some(width), indent1, indent2)),
+        }
+    }
+}
+
+impl TryFrom<&[WrapToken]> for Wrap {
+    type Error = String;
+
+    fn try_from(tokens: &[WrapToken]) -> Result<Self, Self::Error> {
+        // Indents following the first value must be numbers
+        let indents = |rest: &[WrapToken]| {
+            rest.iter()
+                .map(|token| match token {
+                    WrapToken::Number(number) => Ok(*number),
+                    _ => Err(format!(
+                        "ERROR: Can't parse option --wrap '{}' to integers.",
+                        itertools::join(tokens, " ")
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()
+        };
+
+        match tokens {
+            [] => Ok(Wrap::Auto {
+                indent1: Some(0),
+                indent2: Some(8),
+            }),
+            [WrapToken::None, ..] => Ok(Wrap::None),
+            [WrapToken::Auto, rest @ ..] => {
+                let indents = indents(rest)?;
+                Ok(Wrap::Auto {
+                    indent1: indents.first().copied(),
+                    indent2: indents.get(1).copied(),
+                })
+            }
+            [WrapToken::Number(width), rest @ ..] => {
+                let indents = indents(rest)?;
+                Ok(Wrap::Width {
+                    width: *width,
+                    indent1: indents.first().copied(),
+                    indent2: indents.get(1).copied(),
+                })
+            }
+        }
+    }
 }
 
 /// Return true if session should continue, false if it should exit now
@@ -376,7 +536,7 @@ fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> 
                 }
             }
             Some(model) => {
-                set_model(repository, model, REPO_CONFIG_FILE, &ses.models_dir)?;
+                set_model(repository, model.as_str(), REPO_CONFIG_FILE, &ses.models_dir)?;
                 eprint!("Branching model set to '{}'", model);
             }
         };
@@ -388,7 +548,7 @@ fn match_model_subcommand(ses: &mut Session, cli: &Cli) -> Result<bool, String> 
 fn match_model_opt(ses: &mut Session, cli: &Cli) -> Result<BranchSettingsDef, String> {
     let model = get_model(
         ses.repository.as_ref().unwrap(),
-        cli.model.as_deref(),
+        cli.model.as_ref().map(Model::as_str),
         REPO_CONFIG_FILE,
         &ses.models_dir,
     )?;
@@ -396,18 +556,7 @@ fn match_model_opt(ses: &mut Session, cli: &Cli) -> Result<BranchSettingsDef, St
 }
 
 fn match_commit_limit_args(ses: &mut Session, cli: &Cli) -> Result<(), String> {
-    ses.commit_limit = match &cli.max_count {
-        None => None,
-        Some(str) => match str.parse::<usize>() {
-            Ok(val) => Some(val),
-            Err(_) => {
-                return Err(format![
-                    "Option max-count must be a positive number, but got '{}'",
-                    str
-                ])
-            }
-        },
-    };
+    ses.commit_limit = cli.max_count.map(|max_count| max_count as usize);
 
     Ok(())
 }
@@ -416,27 +565,21 @@ fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
     let colored = if cli.no_color {
         false
     } else {
-        match &cli.color[..] {
-            "auto" => {
+        match cli.color {
+            ColorMode::Auto => {
                 atty::is(atty::Stream::Stdout)
                     && (!cfg!(windows) || {
                         yansi::enable();
                         yansi::is_enabled()
                     })
             }
-            "always" => {
+            ColorMode::Always => {
                 if cfg!(windows) {
                     yansi::enable();
                 }
                 true
             }
-            "never" => false,
-            other => {
-                return Err(format!(
-                    "Unknown color mode '{}'. Supports [auto|always|never].",
-                    other
-                ))
-            }
+            ColorMode::Never => false,
         }
     };
 
@@ -449,51 +592,8 @@ fn match_color_args(_ses: &mut Session, cli: &Cli) -> Result<bool, String> {
 
 type WrapType = Option<(Option<usize>, Option<usize>, Option<usize>)>;
 fn match_wrap_args(_ses: &mut Session, cli: &Cli) -> Result<WrapType, String> {
-    let wrapping = if let Some(wrap_values) = &cli.wrap {
-        let strings = wrap_values.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        if strings.is_empty() {
-            Some((None, Some(0), Some(8)))
-        } else {
-            match strings[0] {
-                "none" => None,
-                "auto" => {
-                    let wrap = strings
-                        .iter()
-                        .skip(1)
-                        .map(|str| str.parse::<usize>())
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|_| {
-                            format!(
-                                "ERROR: Can't parse option --wrap '{}' to integers.",
-                                strings.join(" ")
-                            )
-                        })?;
-                    Some((None, wrap.first().cloned(), wrap.get(1).cloned()))
-                }
-                _ => {
-                    let wrap = strings
-                        .iter()
-                        .map(|str| str.parse::<usize>())
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|_| {
-                            format!(
-                                "ERROR: Can't parse option --wrap '{}' to integers.",
-                                strings.join(" ")
-                            )
-                        })?;
-                    Some((
-                        wrap.first().cloned(),
-                        wrap.get(1).cloned(),
-                        wrap.get(2).cloned(),
-                    ))
-                }
-            }
-        }
-    } else {
-        Some((None, Some(0), Some(8)))
-    };
-
-    Ok(wrapping)
+    let wrap = Wrap::try_from(&cli.wrap[..])?;
+    Ok(wrap.into_settings())
 }
 
 fn match_format_args(_ses: &mut Session, cli: &Cli) -> Result<CommitFormat, String> {
