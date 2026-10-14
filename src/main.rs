@@ -23,8 +23,8 @@ use gleisbau::settings::{
 };
 use itertools::enumerate;
 use platform_dirs::AppDirs;
-use std::path::PathBuf;
 use std::borrow::Borrow;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;

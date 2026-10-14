@@ -41,7 +41,8 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         document = document.add(draw_commit(info, graph, idx));
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
-        let commit_summary = commit.summary()
+        let commit_summary = commit
+            .summary()
             .map_err(|err| err.message().to_string())?
             .unwrap_or("");
 
