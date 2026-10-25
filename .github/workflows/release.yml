@@ -15,6 +15,11 @@ jobs:
   release:
     name: Release for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+
+    # Explicitly grant GITHUB_TOKEN write access to attach binaries to the release
+    permissions:
+      contents: write
+    
     strategy:
       matrix:
         include:
