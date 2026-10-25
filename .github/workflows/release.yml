@@ -69,4 +69,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: release.tar.gz
           asset_name: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}.tar.gz
-          tag: ${{ github.ref }}
+          tag: ${{ github.event.release.tag_name }}
+          overwrite: true
