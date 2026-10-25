@@ -23,8 +23,8 @@ use gleisbau::settings::{
 };
 use itertools::enumerate;
 use platform_dirs::AppDirs;
-use std::path::PathBuf;
 use std::borrow::Borrow;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
@@ -396,10 +396,10 @@ fn match_commit_limit_args(ses: &mut Session, matches: &ArgMatches) -> Result<()
         Some(str) => match str.parse::<usize>() {
             Ok(val) => Some(val),
             Err(_) => {
-                return Err(format![
+                return Err(format!(
                     "Option max-count must be a positive number, but got '{}'",
                     str
-                ])
+                ))
             }
         },
     };
