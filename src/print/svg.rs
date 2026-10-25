@@ -127,7 +127,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
         let branch_color = &branch_visual.svg_color;
 
         for par_oid in &info.parents {
-            let Some(par_idx) = tracks.indices.get(&par_oid) else {
+            let Some(par_idx) = tracks.indices.get(par_oid) else {
                 // Parent is outside scope of tracks.indices
                 // so draw a vertical line to the bottom
                 let idx_bottom = tracks.commits.len();
@@ -152,7 +152,7 @@ fn draw_commit(info: &CommitInfo, graph: &GitGraph, index: usize) -> Group {
                 if branch_visual.column == par_branch_visual.column {
                     index
                 } else {
-                    get_deviate_index(&tracks, layout, index, *par_idx)
+                    get_deviate_index(tracks, layout, index, *par_idx)
                 },
                 if info.is_merge() {
                     &par_branch_visual.svg_color

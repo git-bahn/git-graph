@@ -396,10 +396,10 @@ fn match_commit_limit_args(ses: &mut Session, matches: &ArgMatches) -> Result<()
         Some(str) => match str.parse::<usize>() {
             Ok(val) => Some(val),
             Err(_) => {
-                return Err(format![
+                return Err(format!(
                     "Option max-count must be a positive number, but got '{}'",
                     str
-                ])
+                ))
             }
         },
     };
