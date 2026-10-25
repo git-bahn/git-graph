@@ -38,7 +38,9 @@ jobs:
 
       - name: Get tag or commit
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "RELEASE_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
           else
             SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
