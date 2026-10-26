@@ -2,7 +2,7 @@ name: Release
 
 on:
   release:
-    types: [published]
+    types: [created, published]
   push:
     branches: [master]
   pull_request:
@@ -15,6 +15,11 @@ jobs:
   release:
     name: Release for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+
+    # Explicitly grant GITHUB_TOKEN write access to attach binaries to the release
+    permissions:
+      contents: write
+    
     strategy:
       matrix:
         include:
@@ -29,11 +34,13 @@ jobs:
             os_name: "macos-amd64"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Get tag or commit
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "RELEASE_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
           else
             SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
@@ -64,4 +71,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: release.tar.gz
           asset_name: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}.tar.gz
-          tag: ${{ github.ref }}
+          tag: ${{ github.event.release.tag_name }}
+          overwrite: true
