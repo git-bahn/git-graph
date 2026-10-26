@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased] - Next Date
 
+
+## [0.8.2] - 2026-10-26
+
 ### Changed
 
 - Grant github release workflow permission to write binaries
