@@ -16,13 +16,9 @@ env:
   REPO: git-graph
 
 jobs:
-  release:
-    name: Release for ${{ matrix.os }}
+  build:
+    name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-
-    # Explicitly grant GITHUB_TOKEN write access to attach binaries to the release
-    permissions:
-      contents: write
     
     strategy:
       matrix:
@@ -57,22 +53,41 @@ jobs:
       - name: Compress
         run: |
           cp -f target/release/$REPO${{ matrix.bin_extension }} .
-          tar -czf release.tar.gz $REPO${{ matrix.bin_extension }}
+          ARCHIVE="$REPO-$RELEASE_VERSION-${{ matrix.os_name }}.tar.gz"
+          tar -czf $ARCHIVE $REPO${{ matrix.bin_extension }}
         shell: bash
 
       - name: Archive build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}
-          path: release.tar.gz
+          path: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}.tar.gz
+          if-no-files-found: error
 
-      - name: Upload binaries to release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: svenstaro/upload-release-action@v2
+  release:
+    name: Create GitHub draft release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs: build
+
+    # Explicitly grant GITHUB_TOKEN write access to attach binaries to the release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: release.tar.gz
-          asset_name: ${{ env.REPO }}-${{ env.RELEASE_VERSION }}-${{ matrix.os_name }}.tar.gz
-          tag: ${{ github.ref }}
-          overwrite: true
-          draft: true
+          pattern: ${{ env.REPO }}-${{ github.ref_name }}-*
+          path: artifacts
+          merge-multiple: false
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --draft \
+            --title "$TAG" \
+            artifacts/*/*.tar.gz
