@@ -83,11 +83,9 @@ jobs:
           merge-multiple: false
 
       - name: Create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$TAG" \
-            --draft \
-            --title "$TAG" \
-            artifacts/*/*.tar.gz
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: git-graph ${{ github.ref_name }}
+          draft: true
+          files: artifacts/**/*.tar.gz
