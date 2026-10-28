@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased] - Next Date
 
+### Fixed
+
+- Breaking a pipe no longer cause panic.
+  Example:
+    git-graph | head -n 10
+
 
 ## [0.8.2] - 2026-10-27
 
