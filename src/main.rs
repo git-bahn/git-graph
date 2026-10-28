@@ -24,19 +24,26 @@ use gleisbau::settings::{
 use itertools::enumerate;
 use platform_dirs::AppDirs;
 use std::borrow::Borrow;
+use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Instant;
 
 const REPO_CONFIG_FILE: &str = "git-graph.toml";
+const BROKEN_PIPE: &str = "<broken pipe>";
 
 fn main() {
     std::process::exit(match from_args() {
         Ok(_) => 0,
         Err(err) => {
-            eprintln!("{}", err);
-            1
+            if err == BROKEN_PIPE {
+                0
+            } else {
+                eprintln!("{}", err);
+                1
+            }
         }
     });
 }
@@ -662,13 +669,20 @@ fn run(
 
     let now = Instant::now();
 
-    if svg {
-        println!("{}", print_svg(&graph, settings)?);
-    } else {
-        let (g_lines, t_lines, _indices) = print_unicode(&graph, settings)?;
-        print_unpaged(&g_lines, &t_lines);
-    };
-
+    {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        if svg {
+            let svg_lines = print_svg(&graph, settings)?;
+            io_err_to_string(writeln!(out, "{}", svg_lines))?;
+        } else {
+            let (g_lines, t_lines, _indices) = print_unicode(&graph, settings)?;
+            for (g_line, t_line) in g_lines.iter().zip(t_lines.iter()) {
+                io_err_to_string(writeln!(out, " {}  {}", g_line, t_line))?;
+            }
+        };
+        io_err_to_string(out.flush())?;
+    }
     let duration_print = now.elapsed().as_micros();
 
     if settings.debug {
@@ -682,9 +696,15 @@ fn run(
     Ok(())
 }
 
-/// Print the graph, un-paged.
-fn print_unpaged(graph_lines: &[String], text_lines: &[String]) {
-    for (g_line, t_line) in graph_lines.iter().zip(text_lines.iter()) {
-        println!(" {}  {}", g_line, t_line);
-    }
+/// Convet a Result<(), io::Error> to Result<(), String>
+/// ErrorKind::BrokenPipe is given a key string that lets us
+/// exit quickly without an error
+fn io_err_to_string(result: Result<(), io::Error>) -> Result<(), String> {
+    result.map_err(|e| {
+        if e.kind() == io::ErrorKind::BrokenPipe {
+            BROKEN_PIPE.to_string()
+        } else {
+            e.to_string()
+        }
+    })
 }
