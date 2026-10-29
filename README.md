@@ -109,7 +109,6 @@ git-graph --model my-model
 
 * Summaries of merge commits (i.e. 1st line of message) should not be modified! git-graph needs them to categorize merged branches.
 * Supports only the primary remote repository `origin`.
-* Does currently not support "octopus merges" (i.e. no more than 2 parents)
 * On Windows PowerShell, piping to file output does not work properly (changes encoding), so you may want to use the default Windows console instead
 
 ## Contributing

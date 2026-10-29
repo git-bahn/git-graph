@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased] - Next Date
 
+
+## [0.8.3] - 2026-10-29
+
 ### Fixed
 
 - Breaking a pipe no longer cause panic.
@@ -49,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Remove pager
+
+### Fixed
+
+- Support octo-merges
 
 
 ## [0.7.0] - 2025-11-14
