@@ -96,6 +96,7 @@ FLAGS:
                       automatically (e.g. when piping to a file).
                       Overrides option '--color'
         --no-pager    Use no pager (print everything at once without prompt).
+    -r, --rotate      Rotate the graph 180 degrees.
     -S, --sparse      Print a less compact graph: merge lines point to target lines
                       rather than merge commits.
         --svg         Render graph as SVG instead of text-based.
