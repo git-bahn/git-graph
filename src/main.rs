@@ -87,69 +87,68 @@ fn build_cli() -> Command {
     let app = add_wrap_args(app);
     let app = add_format_args(app);
 
-    app
-        .arg(
-            Arg::new("rotate")
-                .long("rotate")
-                .short('r')
-                .alias("reverse")
-                .help("Rotate the graph 180 degrees.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("local")
-                .long("local")
-                .short('l')
-                .help("Show only local branches, no remotes.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("svg")
-                .long("svg")
-                .help("Render graph as SVG instead of text-based.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("debug")
-                .long("debug")
-                .short('d')
-                .help("Additional debug output and graphics.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("sparse")
-                .long("sparse")
-                .short('S')
-                .help(
-                    "Print a less compact graph: merge lines point to target lines\n\
+    app.arg(
+        Arg::new("rotate")
+            .long("rotate")
+            .short('r')
+            .alias("reverse")
+            .help("Rotate the graph 180 degrees.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("local")
+            .long("local")
+            .short('l')
+            .help("Show only local branches, no remotes.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("svg")
+            .long("svg")
+            .help("Render graph as SVG instead of text-based.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("debug")
+            .long("debug")
+            .short('d')
+            .help("Additional debug output and graphics.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("sparse")
+            .long("sparse")
+            .short('S')
+            .help(
+                "Print a less compact graph: merge lines point to target lines\n\
                        rather than merge commits.",
-                )
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("style")
-                .long("style")
-                .short('s')
-                .help(
-                    "Output style. One of [normal/thin|round|bold|double|ascii].\n  \
+            )
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("style")
+            .long("style")
+            .short('s')
+            .help(
+                "Output style. One of [normal/thin|round|bold|double|ascii].\n  \
                          (First character can be used as abbreviation, e.g. '-s r')",
-                )
-                .required(false)
-                .num_args(1),
-        )
-        .arg(
-            Arg::new("refspecs")
-                .help(
-                    "Branch names or refspecs to show.\n  \
+            )
+            .required(false)
+            .num_args(1),
+    )
+    .arg(
+        Arg::new("refspecs")
+            .help(
+                "Branch names or refspecs to show.\n  \
                          Only the subgraph between the merge-base and the tips is displayed.",
-                )
-                .num_args(1..),
-        )
+            )
+            .num_args(1..),
+    )
 }
 
 fn match_args() -> ArgMatches {
