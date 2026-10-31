@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Renamed CLI option `--reverse` to `--rotate` (`-r`). `--reverse` remains available as a hidden alias.
+
+
 ## [0.8.3] - 2026-10-29
 
 ### Fixed
