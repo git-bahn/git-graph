@@ -66,7 +66,7 @@ fn from_args() -> Result<(), String> {
     )
 }
 
-fn match_args() -> ArgMatches {
+fn build_cli() -> Command {
     // Declare command line argument interface for clap
     let app = Command::new("git-graph").version(crate_version!()).about(
         "Structured Git graphs for your branching model.\n    \
@@ -87,71 +87,73 @@ fn match_args() -> ArgMatches {
     let app = add_wrap_args(app);
     let app = add_format_args(app);
 
-    let app = app
-        .arg(
-            Arg::new("reverse")
-                .long("reverse")
-                .short('r')
-                .help("Reverse the order of commits.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("local")
-                .long("local")
-                .short('l')
-                .help("Show only local branches, no remotes.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("svg")
-                .long("svg")
-                .help("Render graph as SVG instead of text-based.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("debug")
-                .long("debug")
-                .short('d')
-                .help("Additional debug output and graphics.")
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("sparse")
-                .long("sparse")
-                .short('S')
-                .help(
-                    "Print a less compact graph: merge lines point to target lines\n\
+    app.arg(
+        Arg::new("rotate")
+            .long("rotate")
+            .short('r')
+            .alias("reverse")
+            .help("Rotate the graph 180 degrees.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("local")
+            .long("local")
+            .short('l')
+            .help("Show only local branches, no remotes.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("svg")
+            .long("svg")
+            .help("Render graph as SVG instead of text-based.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("debug")
+            .long("debug")
+            .short('d')
+            .help("Additional debug output and graphics.")
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("sparse")
+            .long("sparse")
+            .short('S')
+            .help(
+                "Print a less compact graph: merge lines point to target lines\n\
                        rather than merge commits.",
-                )
-                .required(false)
-                .num_args(0),
-        )
-        .arg(
-            Arg::new("style")
-                .long("style")
-                .short('s')
-                .help(
-                    "Output style. One of [normal/thin|round|bold|double|ascii].\n  \
+            )
+            .required(false)
+            .num_args(0),
+    )
+    .arg(
+        Arg::new("style")
+            .long("style")
+            .short('s')
+            .help(
+                "Output style. One of [normal/thin|round|bold|double|ascii].\n  \
                          (First character can be used as abbreviation, e.g. '-s r')",
-                )
-                .required(false)
-                .num_args(1),
-        )
-        .arg(
-            Arg::new("refspecs")
-                .help(
-                    "Branch names or refspecs to show.\n  \
+            )
+            .required(false)
+            .num_args(1),
+    )
+    .arg(
+        Arg::new("refspecs")
+            .help(
+                "Branch names or refspecs to show.\n  \
                          Only the subgraph between the merge-base and the tips is displayed.",
-                )
-                .num_args(1..),
-        );
+            )
+            .num_args(1..),
+    )
+}
 
+fn match_args() -> ArgMatches {
     // Return match of declared arguments with what is present on command line
-    app.get_matches()
+    build_cli().get_matches()
 }
 
 /// Return true if session should continue, false if it should exit now
@@ -173,7 +175,7 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
 
     let include_remote = !matches.get_flag("local");
 
-    let reverse_commit_order = matches.get_flag("reverse");
+    let reverse_commit_order = matches.get_flag("rotate");
 
     ses.svg = matches.get_flag("svg");
     let compact = !matches.get_flag("sparse");
@@ -707,4 +709,40 @@ fn io_err_to_string(result: Result<(), io::Error>) -> Result<(), String> {
             e.to_string()
         }
     })
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::build_cli;
+
+    #[test]
+    fn rotate_flag_sets_rotate() {
+        let matches = build_cli()
+            .try_get_matches_from(["git-graph", "--rotate"])
+            .unwrap();
+        assert!(matches.get_flag("rotate"));
+    }
+
+    #[test]
+    fn rotate_short_flag_sets_rotate() {
+        let matches = build_cli()
+            .try_get_matches_from(["git-graph", "-r"])
+            .unwrap();
+        assert!(matches.get_flag("rotate"));
+    }
+
+    #[test]
+    fn reverse_alias_sets_rotate() {
+        let matches = build_cli()
+            .try_get_matches_from(["git-graph", "--reverse"])
+            .unwrap();
+        assert!(matches.get_flag("rotate"));
+    }
+
+    #[test]
+    fn help_lists_rotate_not_reverse() {
+        let help = build_cli().render_help().to_string();
+        assert!(help.contains("--rotate"));
+        assert!(!help.contains("--reverse"));
+    }
 }
