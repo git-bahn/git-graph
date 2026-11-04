@@ -17,6 +17,19 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
     let mut document = Document::new();
 
     let max_idx = tracks.commits.len();
+    let rotate = settings.reverse_commit_order;
+    let row = |idx: usize| {
+        if rotate {
+            max_idx.saturating_sub(idx + 1)
+        } else {
+            idx
+        }
+    };
+    // Mirrors the rows of commit dots and lines the same way `row` does for the text
+    let graph_transform = rotate.then(|| {
+        let (_, y) = commit_coord(max_idx, 0);
+        format!("matrix(1 0 0 -1 0 {y})")
+    });
     let mut widest_summary = 0.0;
     let mut widest_branch_names = 0.0;
 
@@ -25,9 +38,9 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
             if let (Some(start), Some(end)) = branch.range {
                 let branch_visual = layout.track_visual(branch_inx.into()).unwrap();
                 document = document.add(bold_line(
-                    start,
+                    row(start),
                     branch_visual.column.unwrap(),
-                    end,
+                    row(end),
                     branch_visual.column.unwrap(),
                     "cyan",
                 ));
@@ -38,7 +51,11 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
     let max_column = find_max_column(graph);
 
     for (idx, info) in tracks.commits.iter().enumerate() {
-        document = document.add(draw_commit(info, graph, idx));
+        let mut commit_group = draw_commit(info, graph, idx);
+        if let Some(transform) = &graph_transform {
+            commit_group = commit_group.set("transform", transform.as_str());
+        }
+        document = document.add(commit_group);
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
         let commit_summary = commit
@@ -46,7 +63,7 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
             .map_err(|err| err.message().to_string())?
             .unwrap_or("");
 
-        document = document.add(draw_summary(idx, max_column, commit_summary));
+        document = document.add(draw_summary(row(idx), max_column, commit_summary));
 
         if let Some(trace) = info.branch_trace {
             let branch_visual = layout
@@ -54,7 +71,7 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
                 .expect("Branch should have a layout");
 
             if let Some((branches, width)) =
-                draw_branches(idx, branch_visual.column.unwrap(), info, graph)
+                draw_branches(row(idx), branch_visual.column.unwrap(), info, graph)
             {
                 document = document.add(branches);
 
@@ -343,4 +360,89 @@ fn path(
 
 fn commit_coord(index: usize, column: usize) -> (f32, f32) {
     (15.0 * (column as f32 + 1.0), 15.0 * (index as f32 + 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::print_svg;
+    use git2::{Repository, Signature};
+    use gleisbau::graph::Builder;
+    use gleisbau::print::format::CommitFormat;
+    use gleisbau::settings::{
+        BranchOrder, BranchSettings, BranchSettingsDef, Characters, MergePatterns, Settings,
+    };
+    use std::rc::Rc;
+
+    /// Renders a repository with the commits "first" and then "second".
+    fn render(rotate: bool) -> String {
+        let dir = std::env::temp_dir().join(format!(
+            "git-graph-svg-test-{}-{rotate}",
+            std::process::id()
+        ));
+        let repo = Repository::init(&dir).unwrap();
+        let signature = Signature::now("Test", "test@example.com").unwrap();
+        let tree_id = repo.treebuilder(None).unwrap().write().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let first = repo
+            .commit(Some("HEAD"), &signature, &signature, "first", &tree, &[])
+            .unwrap();
+        let first = repo.find_commit(first).unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "second",
+            &tree,
+            &[&first],
+        )
+        .unwrap();
+        drop(first);
+        drop(tree);
+
+        let settings = Rc::new(Settings {
+            reverse_commit_order: rotate,
+            debug: false,
+            compact: true,
+            colored: false,
+            include_remote: false,
+            format: CommitFormat::OneLine,
+            wrapping: None,
+            characters: Characters::thin(),
+            branch_order: BranchOrder::ShortestFirst(true),
+            branches: BranchSettings::from(BranchSettingsDef::simple()).unwrap(),
+            merge_patterns: MergePatterns::default(),
+        });
+        let graph = Builder::new()
+            .with_repository(repo)
+            .with_settings(settings.clone())
+            .build()
+            .unwrap();
+        let svg = print_svg(&graph, &settings).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        svg
+    }
+
+    /// Returns the value of the attribute on the first element containing `marker`.
+    fn attr_near(svg: &str, marker: &str, attr: &str) -> f32 {
+        let end = svg.find(marker).unwrap();
+        let start = svg[..end].rfind('<').unwrap();
+        let element = &svg[start..end];
+        let value = element.split(&format!("{attr}=\"")).nth(1).unwrap();
+        value.split('"').next().unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn svg_keeps_newest_commit_on_top_by_default() {
+        let svg = render(false);
+        assert!(attr_near(&svg, ">\nsecond", "y") < attr_near(&svg, ">\nfirst", "y"));
+        assert!(!svg.contains("matrix(1 0 0 -1"));
+    }
+
+    #[test]
+    fn svg_rotate_puts_oldest_commit_on_top() {
+        let svg = render(true);
+        assert!(attr_near(&svg, ">\nfirst", "y") < attr_near(&svg, ">\nsecond", "y"));
+        // Commit dots and lines are mirrored around the same rows as the text.
+        assert!(svg.contains("transform=\"matrix(1 0 0 -1 0 45)\""));
+    }
 }
