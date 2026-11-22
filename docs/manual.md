@@ -105,6 +105,8 @@ FLAGS:
 OPTIONS:
         --color <color>      Specify when colors should be used. One of [auto|always|never].
                              Default: auto.
+                             The auto mode also prints no colors when
+                             the NO_COLOR environment variable is set.
     -f, --format <format>    Commit format. One of [oneline|short|medium|full|"<string>"].
                                (First character can be used as abbreviation, e.g. '-f m')
                              Default: oneline.

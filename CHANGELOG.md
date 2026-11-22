@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased] - Next Date
 
+### Added
+
+- The `auto` color mode respects the `NO_COLOR` environment variable (see https://no-color.org/).
+
 ### Changed
 
 - Renamed CLI option `--reverse` to `--rotate` (`-r`). `--reverse` remains available as a hidden alias.

@@ -24,6 +24,7 @@ use gleisbau::settings::{
 use itertools::enumerate;
 use platform_dirs::AppDirs;
 use std::borrow::Borrow;
+use std::ffi::OsString;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -426,7 +427,8 @@ fn add_color_args(app: Command) -> Command {
             .long("color")
             .help(
                 "Specify when colors should be used. One of [auto|always|never].\n\
-                       Default: auto.",
+                       Default: auto. The auto mode also prints no colors when\n\
+                       the NO_COLOR environment variable is set.",
             )
             .required(false)
             .num_args(1),
@@ -449,13 +451,7 @@ fn match_color_args(_ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
         false
     } else if let Some(mode) = matches.get_one::<String>("color") {
         match &mode[..] {
-            "auto" => {
-                atty::is(atty::Stream::Stdout)
-                    && (!cfg!(windows) || {
-                        yansi::enable();
-                        yansi::is_enabled()
-                    })
-            }
+            "auto" => auto_color(),
             "always" => {
                 if cfg!(windows) {
                     yansi::enable();
@@ -471,14 +467,27 @@ fn match_color_args(_ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
             }
         }
     } else {
-        atty::is(atty::Stream::Stdout)
-            && (!cfg!(windows) || {
-                yansi::enable();
-                yansi::is_enabled()
-            })
+        auto_color()
     };
 
     Ok(colored)
+}
+
+/// Whether the `auto` color mode prints colors: not when `NO_COLOR` asks for
+/// none, nor when stdout is not a terminal.
+fn auto_color() -> bool {
+    !no_color_requested(std::env::var_os("NO_COLOR"))
+        && atty::is(atty::Stream::Stdout)
+        && (!cfg!(windows) || {
+            yansi::enable();
+            yansi::is_enabled()
+        })
+}
+
+/// `NO_COLOR` set to anything but an empty string turns colors off.
+/// See <https://no-color.org/>.
+fn no_color_requested(value: Option<OsString>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
 }
 
 //
@@ -713,7 +722,16 @@ fn io_err_to_string(result: Result<(), io::Error>) -> Result<(), String> {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::build_cli;
+    use super::{build_cli, no_color_requested};
+    use std::ffi::OsString;
+
+    #[test]
+    fn no_color_env_turns_colors_off_when_not_empty() {
+        assert!(no_color_requested(Some(OsString::from("1"))));
+        assert!(no_color_requested(Some(OsString::from("false"))));
+        assert!(!no_color_requested(Some(OsString::new())));
+        assert!(!no_color_requested(None));
+    }
 
     #[test]
     fn rotate_flag_sets_rotate() {
