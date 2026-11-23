@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The `auto` color mode respects the `NO_COLOR` environment variable (see https://no-color.org/).
+- `--svg` uses `--format` for the commit text when it is given. Multi-line formats are joined into one line.
 
 ### Changed
 
