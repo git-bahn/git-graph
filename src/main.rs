@@ -62,6 +62,7 @@ fn from_args() -> Result<(), String> {
         ses.repository.unwrap(),
         Rc::new(ses.settings.unwrap()),
         ses.svg,
+        ses.svg_use_format,
         ses.commit_limit,
         ses.refspecs,
     )
@@ -108,7 +109,11 @@ fn build_cli() -> Command {
     .arg(
         Arg::new("svg")
             .long("svg")
-            .help("Render graph as SVG instead of text-based.")
+            .help(
+                "Render graph as SVG instead of text-based.\n\
+                 Commit text follows --format if given, otherwise the summary.\n\
+                 Multi-line formats are joined into one line.",
+            )
             .required(false)
             .num_args(0),
     )
@@ -179,6 +184,8 @@ fn configure_session(ses: &mut Session, matches: &ArgMatches) -> Result<bool, St
     let reverse_commit_order = matches.get_flag("rotate");
 
     ses.svg = matches.get_flag("svg");
+    // Without an explicit --format, SVG output keeps showing just the summary
+    ses.svg_use_format = matches.contains_id("format");
     let compact = !matches.get_flag("sparse");
     let debug = matches.get_flag("debug");
     let style = matches
@@ -233,6 +240,7 @@ struct Session {
     // Other fields
     pub repository: Option<Repository>,
     pub svg: bool,
+    pub svg_use_format: bool,
     pub commit_limit: Option<usize>,
     pub refspecs: Vec<String>,
 }
@@ -249,6 +257,7 @@ impl Session {
             // Other fields
             repository: None,
             svg: false,
+            svg_use_format: false,
             commit_limit: None,
             refspecs: Vec::new(),
         }
@@ -636,6 +645,7 @@ fn run(
     repository: Repository,
     settings: Rc<Settings>,
     svg: bool,
+    svg_use_format: bool,
     max_commits: Option<usize>,
     refspecs: Vec<String>,
 ) -> Result<(), String> {
@@ -684,7 +694,7 @@ fn run(
         let stdout = io::stdout();
         let mut out = stdout.lock();
         if svg {
-            let svg_lines = print_svg(&graph, settings)?;
+            let svg_lines = print_svg(&graph, settings, svg_use_format)?;
             io_err_to_string(writeln!(out, "{}", svg_lines))?;
         } else {
             let (g_lines, t_lines, _indices) = print_unicode(&graph, settings)?;

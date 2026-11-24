@@ -5,13 +5,21 @@ use itertools::enumerate;
 use gleisbau::graph::CommitInfo;
 use gleisbau::graph::GitGraph;
 use gleisbau::layout::get_deviate_index;
+use gleisbau::print::format::format_commit_metadata;
 use gleisbau::settings::Settings;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Group, Line, Path, Text, Title};
 use svg::Document;
 
 /// Creates a SVG visual representation of a graph.
-pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String> {
+///
+/// With `use_format`, the text next to each commit follows `settings.format`,
+/// joined into one line. Otherwise it is the commit summary.
+pub fn print_svg(
+    graph: &GitGraph,
+    settings: &Settings,
+    use_format: bool,
+) -> Result<String, String> {
     let tracks = &graph.tracks;
     let layout = &graph.layout;
     let mut document = Document::new();
@@ -58,10 +66,23 @@ pub fn print_svg(graph: &GitGraph, settings: &Settings) -> Result<String, String
         document = document.add(commit_group);
 
         let commit = graph.repository.find_commit(info.oid).unwrap();
-        let commit_summary = commit
-            .summary()
-            .map_err(|err| err.message().to_string())?
-            .unwrap_or("");
+        let commit_summary = if use_format {
+            // Each commit gets one row, so a multi-line format is joined into one line.
+            // Branch names are left out because the SVG already draws them as labels.
+            format_commit_metadata(&commit, String::new(), &None, None, &settings.format)?
+                .iter()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join("  ")
+        } else {
+            commit
+                .summary()
+                .map_err(|err| err.message().to_string())?
+                .unwrap_or("")
+                .to_string()
+        };
+        let commit_summary = commit_summary.as_str();
 
         document = document.add(draw_summary(row(idx), max_column, commit_summary));
 
@@ -372,12 +393,20 @@ mod tests {
         BranchOrder, BranchSettings, BranchSettingsDef, Characters, MergePatterns, Settings,
     };
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Renders a repository with the commits "first" and then "second".
     fn render(rotate: bool) -> String {
+        render_with(rotate, CommitFormat::OneLine, false)
+    }
+
+    fn render_with(rotate: bool, format: CommitFormat, use_format: bool) -> String {
+        // Tests run in parallel, so every repository gets its own folder
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "git-graph-svg-test-{}-{rotate}",
-            std::process::id()
+            "git-graph-svg-test-{}-{}",
+            std::process::id(),
+            RUNS.fetch_add(1, Ordering::Relaxed)
         ));
         let repo = Repository::init(&dir).unwrap();
         let signature = Signature::now("Test", "test@example.com").unwrap();
@@ -405,7 +434,7 @@ mod tests {
             compact: true,
             colored: false,
             include_remote: false,
-            format: CommitFormat::OneLine,
+            format,
             wrapping: None,
             characters: Characters::thin(),
             branch_order: BranchOrder::ShortestFirst(true),
@@ -417,7 +446,7 @@ mod tests {
             .with_settings(settings.clone())
             .build()
             .unwrap();
-        let svg = print_svg(&graph, &settings).unwrap();
+        let svg = print_svg(&graph, &settings, use_format).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         svg
     }
@@ -444,5 +473,22 @@ mod tests {
         assert!(attr_near(&svg, ">\nfirst", "y") < attr_near(&svg, ">\nsecond", "y"));
         // Commit dots and lines are mirrored around the same rows as the text.
         assert!(svg.contains("transform=\"matrix(1 0 0 -1 0 45)\""));
+    }
+
+    #[test]
+    fn svg_uses_format_when_asked() {
+        let format = || CommitFormat::Format("%s by %an".to_string());
+        let svg = render_with(false, format(), true);
+        assert!(svg.contains(">\nsecond by Test"));
+        // Without an explicit --format the summary is shown as before.
+        let svg = render_with(false, format(), false);
+        assert!(svg.contains(">\nsecond\n"));
+        assert!(!svg.contains("by Test"));
+    }
+
+    #[test]
+    fn svg_joins_multi_line_format_into_one_line() {
+        let svg = render_with(false, CommitFormat::Short, true);
+        assert!(svg.contains("Author: Test &lt;test@example.com&gt;  second"));
     }
 }
